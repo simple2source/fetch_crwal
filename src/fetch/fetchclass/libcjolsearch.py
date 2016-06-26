@@ -16,8 +16,6 @@ import libaccount
 import logging.config
 
 
-
-
 class mainfetch(BaseFetch):
     def __init__(self, aa='', task_fpath=''):
         BaseFetch.__init__(self)
@@ -37,7 +35,8 @@ class mainfetch(BaseFetch):
         
         self.refer=''
         self.headers={
-            'Host':self.host,                    
+            'Host':'newrms.cjol.com',
+            'Origin': 'http://newrms.cjol.com',
             'User-Agent': 'Mozilla/5.0 (Ubuntu; X11; Linux i686; rv:8.0) Gecko/20100101 Firefox/8.0',
             'Accept':'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
             'Accept-Language': 'zh-CN,zh;q=0.8,en-US;q=0.5,en;q=0.3',
@@ -59,7 +58,7 @@ class mainfetch(BaseFetch):
         self.start_num=0
         self.end_num=0
         self.current_num=self.start_num
-        self.maxsleeptime=2
+        self.maxsleeptime=18
         self.rp = Rdsreport()
         # init other log
         with open(json_config_path) as f:
@@ -170,37 +169,39 @@ class mainfetch(BaseFetch):
             while count < 3:
                 count +=1
                 try:
-                    chk_url = r'http://rms.cjol.com/ResumeBank/Resume.aspx?JobSeekerID=1'
-                    html = self.url_get(chk_url)
-                    if self.isResume_chk(html) > 0:
+                    chk_url = r'http://newrms.cjol.com/resume/detail-{}'.format(random.choice([1,2,3,4,5,7,9,10,13,16]))
+                    self.rand_ua()
+                    html = self.rand_get(chk_url)
+                    if html.find(u'查看联系方式') > 0:
                         flag = True
                         break
-                    time.sleep(5)                   
+                    time.sleep(8)
                 except Exception,e:
-                    logging.debug('single status check error and msg is %s' % str(e))
+                    logging.debug('single status check error and msg is %s' % str(e), exc_info=True)
                        
             return flag
         except Exception,e:
-            logging.debug('error msg is %s ' % str(e))
+            logging.debug('error msg is %s ' % str(e), exc_info=True)
             return False
 
     def get_cookie(self):    # 更改这里参数来选择账号
         try:
             flag = False
             redis_key_list = self.account.uni_user(time_period=self.time_period, num=self.time_num, hour_num=self.hour_num, day_num=self.day_num)
-            print redis_key_list, 8888888888
+            # print redis_key_list, 8888888888
             if len(redis_key_list) > 0:
                 while len(redis_key_list) > 0 and not flag:
                     redis_key = random.choice(redis_key_list)
                     redis_key_list.remove(redis_key)
                     self.username = redis_key.split('_')[1]
-                    print(self.username), 99999999999
+                    logging.info('cjol get username is {}'.format(self.username))
+                    # print(self.username), 99999999999
                     self.ck_str = self.account.redis_ck_get(self.username)
-                    print self.ck_str
+                    # print self.ck_str
                     self.headers['Cookie'] = self.ck_str
                     if self.login_status_chk():
                         flag = True
-                        print self.username * 100
+                        # print self.username * 100
                         logging.info('switching {} username {} success. '.format(self.module_name, self.username))
                     # else:
                     #     sql_res = self.account.sql_password(self.username)
@@ -265,40 +266,24 @@ class mainfetch(BaseFetch):
     def run_work(self):
         '''功能描述：执行任务主工作入口函数'''
         try:
-            #begin_num=self.current_num
-            # self.load_cookie(self.cookie_fpath)
             self.get_cookie()
             self.login2()
             self.headers['Cookie'] = self.ck_str
             print self.ck_str
             switch_num = 0
             while True:
-                print 22222222222222
                 self.refer = 'http://rms.cjol.com/SearchEngine/SearchResumeInCJOL.aspx'
                 self.headers['Referer']=self.refer
-
-                self.headers['Host'] = 'rms.cjol.com'
-                self.headers['Origin'] = 'http://rms.cjol.com'
-                self.headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:42.0) Gecko/20100101 Firefox/42.0'
-
-                # try:
-                #     print 1111111111111111
-                #
+                self.rand_ua()
                 if self.login_status_chk():
-                    print 'login loginininnnnnnnnnn'
+                    logging.info('{} cookie is not expired'.format(self.module_name))
                 else:
                     self.send_mails('cjol cookie power off', 'cjolsearch {} cookie power off'.format(self.username))
                     self.login2()
-                    print 'nononononononon'
-                #     #print payload
-                # except Exception,e:
-                #     print 'lalala',Exception,e
-                #     continue
-                #
-                # get the first resume page
+                    logging.info('{} trying to re login'.format(self.module_name))
                 resumelist = []
 
-                self.refer = 'http://newrms.cjol.com/SearchEngine/List?fn=d'
+                self.refer = 'http://newrms.cjol.com/SearchEngine/List?fn=d&MinWorkExperience=1&MinEducation=60&cond=eyJNaW5Xb3JrRXhwZXJpZW5jZSI6IjEiLCJNaW5FZHVjYXRpb25UZXh0Ijoi5pys56eRIiwiTWluRWR1Y2F0aW9uIjoiNjAifQ=='
                 self.headers['Referer']=self.refer
                 self.headers['Host'] = 'newrms.cjol.com'
                 self.headers['Origin'] = 'http://newrms.cjol.com'
@@ -306,6 +291,7 @@ class mainfetch(BaseFetch):
                 url = 'http://newrms.cjol.com/SearchEngine/List?fn=d'
                 try:
                     for i in range(1,26):
+                        self.rand_sleep()
                         payload = {
                                 'GetListResult':'GetListResult',
                                 'PageSize':'40',
@@ -315,8 +301,8 @@ class mainfetch(BaseFetch):
                         payload['PageNo'] = str(i)
                         print payload['PageNo']
                         payload = urllib.urlencode(payload)
-                        html = self.url_post(url, payload)
-                        print 2222222
+                        self.rand_ua()
+                        html = self.rand_post(url, payload)
                         soup = BeautifulSoup(html, "html.parser")
                         try:
                             resume_l = soup.find_all('a', {'class': 'txt-link link-sumnum', 'target': '_blank'})
@@ -326,13 +312,13 @@ class mainfetch(BaseFetch):
                                 print resume_ii
                                 resumelist.append(resume_ii)
                         except Exception, e:
-                            print Exception, str(e)
-                            pass
-                except:
-                    pass
+                            logging.error('{} parse resume list error '.format(self.module_name), exc_info=True )
+                except Exception as e:
+                    logging.error('{} error {}'.format(self.module_name, e), exc_info=True)
                 logging.info('Got {} resumes total, and {} is unique.'.format(len(resumelist), len(set(resumelist))))
                 seg_success_count = 0
                 for resumeid in resumelist: #[0:5]:
+                    self.rand_ua()
                     if switch_num > self.switch_num:
                         logging.info('{} time to switch cookie'.format(self.module_name))
                         self.get_cookie()
@@ -340,7 +326,6 @@ class mainfetch(BaseFetch):
                     prefixid = 'c_'+ str(resumeid)
                     addtime = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                     r = self.rp
-                    #r.tranredis('hasfasf', 1)  #todo 待会删
                     if r.rcheck(prefixid,addtime):
                 ## 暂时先分两部分，后面redis id 库足量了，就可以把下个else 去掉
                          req_count = 0
@@ -349,15 +334,19 @@ class mainfetch(BaseFetch):
                              req_count += 1
                              try:
                                  logging.info('begin to get resume %s from Internet' % str(resumeid))
-                                 self.refer = 'http://rms.cjol.com/SearchEngine/SearchResumeInCJOL.aspx'
-                                 self.headers['Referer']=self.refer
-                                 self.headers['Host'] = 'rms.cjol.com'
-                                 self.headers['Origin'] = 'http://rms.cjol.com'
+                                 self.headers['Referer']= 'http://newrms.cjol.com/resume/detail-' + str(resumeid)
+                                 self.headers['Host'] = 'newrms.cjol.com'
+                                 self.headers['Origin'] = 'http://newrms.cjol.com'
                                  self.headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:42.0) Gecko/20100101 Firefox/42.0'
-                                 url = r"http://rms.cjol.com/ResumeBank/Resume.aspx?JobSeekerID=%s" % str(resumeid)
-                                 print url
-                                 #print url
-                                 html = self.url_get(url)
+                                 url = r'http://newrms.cjol.com/ResumeBank/ResumeOperation'
+                                 self.rand_ua()
+                                 payload = {'JobSeekerID': resumeid,
+                                            'bankid': -1,
+                                            'Fn': 'resume',
+                                            'Lang': 'CN'}
+                                 payload = urllib.urlencode(payload)
+                                 res = self.rand_post(url, payload)
+                                 html = json.loads(res)['OtherData']
                                  isResume = self.isResume_chk(html)
                                  if isResume == -2:
                                      req_count = 0
@@ -405,7 +394,6 @@ class mainfetch(BaseFetch):
                                              r.tranredis('cjol_seg', 1, ext1='', ext2='operate_err')
                                              r.es_add(prefixid, addtime, 0)
                                      except Exception, e:
-                                         print '----------'
                                          logging.warning('cjol resume_id %s extractseginsert fail error msg is %s' % (resumeid, e))
                                      break
                                  elif isResume == 2:
@@ -417,20 +405,20 @@ class mainfetch(BaseFetch):
                                      r.tranredis('cjol', 1, ext1=self.username, ext2='attach')
                                      break
                              except Exception,e:
-                                 logging.debug('get %s resume error and msg is %s' % (resumeid,str(e)))
+                                 logging.debug('get %s resume error and msg is %s' % (resumeid,str(e)), exc_info=True)
                 percent = 0
                 percent = int((float(seg_success_count)/1000)*100)
                 begin_num, seg_end = 0, 0   #为了跟dbctrl 兼容
                 data_seg_record(self.module_name,seg_success_count,[begin_num,seg_end,percent])
                 logging.info('success get %d unique resumes and the rate is %d%%' % (seg_success_count,percent))
-                print 'sleeping, 120s'
-                logging.info('cjolsearch will sleep 120s')
-                time.sleep(60)
+                between_sleep = random.choice(xrange(600, 1200))
+                logging.info('cjolsearch will sleep {} between two search '.format(between_sleep))
+                time.sleep(between_sleep)
                 self.rand_sleep()
             
             return True
         except Exception,e:
-            logging.debug('errorr msg is %s' % str(e))
+            logging.debug('errorr msg is %s' % str(e), exc_info=True)
             return False
 
 def add_total_num(fname=''):

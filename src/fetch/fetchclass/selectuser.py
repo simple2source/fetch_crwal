@@ -246,8 +246,8 @@ class Selcet_user(object):
                 # s.headers['Referer'] = 'http://www.cjol.com/hr/'
                 s.headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/47.0.2526.111 Safari/537.36'
                 proxies = {
-                  'http': 'http://183.131.144.102:8081',
-                  'https': 'http://183.131.144.102:8081',
+                  'http': 'http://10.4.16.39:8888',
+                  'https': 'http://10.4.16.39:8888',
                 }
                 # r = s.get(url)
                 # soup = BeautifulSoup(r.text, 'html.parser')

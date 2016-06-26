@@ -2,6 +2,8 @@
 
 from common import database_path
 import sqlite3,logging
+import os
+
 
 def data_total_add(moudle_name=''):
     '''功能描述：对于每一种数据源抓取的总数进行记录'''
@@ -22,7 +24,8 @@ def data_total_add(moudle_name=''):
     except Exception,e:
         logging.debug('error msg is %s '% str(e))
         return False
-    
+
+
 def data_seg_record(moudle_name='',seg_num = 0,addlist=[]):
     '''功能描述：各个数据源的抓取的分段记录信息保存，记录每段抓取的总数，起始/结束号码以及命中率'''
     try:
@@ -105,6 +108,22 @@ def data_seg_record(moudle_name='',seg_num = 0,addlist=[]):
     except Exception,e:
         logging.debug('error msg is %s' % str(e))
         return False
+
+
+def add_process_fetch_count(task_name, ok=0, remove=0):
+    # 记录每个进程的抓取量
+    try:
+        conn = sqlite3.connect('/data/fetch/database/process_fetch.db')
+        cur = conn.cursor()
+        insert_sql = 'INSERT INTO process_fetch_count (task_name, ok ,remove) VALUES ' \
+                     '("{}","{}","{}")'.format(task_name, ok, remove)
+        cur.execute(insert_sql)
+        conn.commit()
+        conn.close()
+        logging.info('%s record process fetch count %s ' % (task_name, str(ok)))
+    except Exception, error:
+        logging.warn('%s record fetch process error %s' % (str(error), task_name))
+
 
 if __name__ == '__main__':
     print 'db test...'

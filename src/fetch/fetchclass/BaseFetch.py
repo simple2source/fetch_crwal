@@ -65,7 +65,31 @@ class BaseFetch(object):
         self.task_type = 0#0:表示默认类型(未知)
         self.taskfpath = ''
         self.id_number = ''
-
+        # 一些ua，用来随机
+        self.ua_list = [
+            'Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/47.0.2526.111 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:44.0) Gecko/20100101 Firefox/44.0',
+            'Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2228.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2227.1 Safari/537.36',
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2227.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2227.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 6.3; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2226.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 6.4; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2225.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 6.3; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2225.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 5.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2224.3 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/40.0.2214.93 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/37.0.2062.124 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:40.0) Gecko/20100101 Firefox/40.1',
+            'Mozilla/5.0 (Windows NT 6.3; rv:36.0) Gecko/20100101 Firefox/36.0',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10; rv:33.0) Gecko/20100101 Firefox/33.0',
+            'Mozilla/5.0 (X11; Linux i586; rv:31.0) Gecko/20100101 Firefox/31.0',
+            'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:31.0) Gecko/20130401 Firefox/31.0',
+            'Mozilla/5.0 (Windows NT 5.1; rv:31.0) Gecko/20100101 Firefox/31.0',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/45.0.2454.101 Safari/537.36',
+        ]
+        self.ua =  'Mozilla/5.0 (Windows NT 5.1; rv:31.0) Gecko/20100101 Firefox/31.0'
+        # 随机ip
+        self.proxy_list = ['10.4.16.39:8888', None]  # none 表示为 走本地, 可以加多丶代理地址
         
         #随机休眠的最大秒数
         self.maxsleeptime=10
@@ -100,6 +124,15 @@ class BaseFetch(object):
             return True
         except Exception,e:
             logging.debug('error msg is %s' % str(e))
+            return False
+
+    def rand_ua(self):
+        try:
+            self.ua = random.choice(self.ua_list)
+            logging.debug('switch ua to {}'.format(self.ua))
+            self.headers['User-Agent'] = self.ua
+        except Exception as e:
+            logging.error('switch ua err', exc_info=True)
             return False
 
     def load_cookie(self,fpath):  
@@ -165,13 +198,29 @@ class BaseFetch(object):
             logging.debug('proxy common error is %s' % str(e))
             return ''
 
+    def proxy_url_post(self,url, ip, postDict={}):
+        """通过代理转发post请求"""
+        try:
+            count = 0
+            html = ''
+            while count < self.request_try_times:
+                html = proxy_url_post(url, ip, postDict, self.headers, 10)
+                if html:
+                    break
+                time.sleep(1)
+                count += 1
+            return html
+        except Exception,e:
+            logging.debug('error msg is %s' % str(e))
+            return ''
+
     def proxy_test_url_get(self,url,ip,getDict={}):
         '''功能描述：提交GET请求'''
         try:
             count=0
             html = ''
             while count < self.request_try_times:
-                html = proxy_url_get(url,ip,getDict,self.headers,3)
+                html = proxy_url_get(url,ip,getDict,self.headers,10)
                 if html:
                     break
                 time.sleep(1)
@@ -179,8 +228,33 @@ class BaseFetch(object):
             return html
         except Exception,e:
             logging.debug('proxy common error is %s' % str(e))
+            return None
+
+    def rand_get(self, url, getDict={}):
+        """智联不可以用这个，216的ip被智联封了"""
+        try:
+            ip = random.choice(self.proxy_list)
+            if ip is None:
+                html = self.url_get(url, getDict)
+            else:
+                html = self.proxy_url_get(url, ip, getDict)
+            return html
+        except Exception, e:
+            logging.error('random proxy get error is {}'.format(e), exc_info=True)
             return ''
 
+    def rand_post(self, url, postDict={}):
+        """同上，智联别用这个"""
+        try:
+            ip = random.choice(self.proxy_list)
+            if ip is None:
+                html = self.url_post(url, postDict)
+            else:
+                html = self.proxy_url_post(url, ip, postDict)
+            return html
+        except Exception, e:
+            logging.error('random proxy post error is {}'.format(e), exc_info=True)
+            return ''
 
     def url_post(self,url,postDict={}):
         '''功能描述：提交POST请求'''

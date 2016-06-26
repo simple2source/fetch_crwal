@@ -29,10 +29,12 @@ payload1 = {
 
 
 # 计算机行业分开两次搜索，系统限制9个选项一起选
-industry_list = ['01,37,38,31,39', '32,35,02,40']
-keyword_list = ['python', 'PHP', 'C++', 'JS', 'javascript', 'HTML5', '安卓', 'android',
-        'ios', 'java', '设计', '产品', '职能', '市场',  '测试', '运维', 'Erlang',
-        'cocos2dx', '.Net', '数据分析', 'u3d', 'python']
+# industry_list = ['01,37,38,31,39', '32,35,02,40']
+industry_list = ['01', '37', '38', '31', '39', '32', '35', '02', '40']
+# keyword_list = ['python', 'PHP', 'C++', 'JS', 'javascript', 'HTML5', '安卓', 'android',
+#         'ios', 'java', '设计', '产品', '职能', '市场',  '测试', '运维', 'Erlang',
+#         'cocos2dx', '.Net', '数据分析', 'u3d', 'python']
+keyword_list = ['']
 url = 'http://search.51job.com/jobsearch/search_result.php'
 
 cookies_dict = {
@@ -297,9 +299,10 @@ def run_work(keyword = 'python'):
         print job_id
         if not common.sql_select('job51', job_id):
             r = common.get_request(url_get)
-            r.encoding = 'gb2312'
-            job_dict = extract2(r.text)
-            common.sql_main('job51', job_dict, url_get, job_id)
+            if r.status_code == 200:
+                r.encoding = 'gb2312'
+                job_dict = extract2(r.text)
+                common.sql_main('job51', job_dict, url_get, job_id)
 
     # s = requests.Session()
     # if keyword == '安卓':

@@ -8,6 +8,12 @@ rcheck 为检查redis 里面有没有改简历ID, expired_day 是过期时间，
 import redis, time, datetime,json, random, os
 from log import *
 import sqlite3, MySQLdb
+import sys
+reload(sys)
+sys.setdefaultencoding('utf8')
+import common
+import logging
+import logging.config
 
 class Db(object):
     """handle mysql gone away gracefully"""
@@ -16,7 +22,7 @@ class Db(object):
             'host': "localhost",
             'user': "testuser",
             'passwd': "",
-            'db': 'reportdb',
+            'db': 'tuike',
             'charset': 'utf8',
         }
         # self.sql_config = {
@@ -36,27 +42,43 @@ class Rdsreport(object):
             'db': 0,
             #'connection_pool': self.pool
         }
+        # with open(common.json_config_path) as f:
+        #     ff = f.read()
+        logger = logging.getLogger(__name__)
+        fh = logging.FileHandler(os.path.join(log_dir, 'redispipe.log'))
+        logger.addHandler(fh)
+        # log_dict = json.loads(ff)
+        # log_dict['handlers']['file']['filename'] = os.path.join(log_dir, 'redispipe.log')
+        # logging.config.dictConfig(log_dict)
+        # logging.debug('hahahahha')
         self.path = os.path.dirname(os.path.abspath(__file__))
         self.not_write_path = os.path.join(self.path, 'not_write_in_redis.txt')
         self.error_path = os.path.join(self.path, 'redis_error.txt')
         self.pool = redis.ConnectionPool(**self.config)
         self.r = redis.StrictRedis(connection_pool=self.pool, **self.config)
-        # self.r = redis.StrictRedis(**self.config)
-        # self.sql_config = {
-        #     'host': "localhost",
-        #     'user': "testuser",
-        #     'passwd': "",
-        #     'db': 'reportdb'
-        # }
-        self.sql_config = {
-            'host': "10.4.14.233",
-            'user': "tuike",
-            'passwd': "sv8VW6VhmxUZjTrU",
-            'db': 'tuike',
-            'charset': 'utf8',
-        }
-        # self.db = MySQLdb.connect(**self.sql_config)
-        # self.cursor = self.db.cursor()
+
+        self.sql_config = common.sql_config
+        self.config_expired_minutes = 5
+        self.config_dict = dict()
+
+
+    def get_conf(self):
+        """从MySQL里读取配置，检查时间，每5分钟更新一次"""
+        try:
+            db = MySQLdb.connect(**self.sql_config)
+            cursor = db.cursor()
+            sql = """select `msgtype`, `interval` from stats_info"""
+            cursor.execute(sql)
+            data = cursor.fetchall()
+            d = dict()
+            for msgtype, interval in data:
+                d[msgtype] = interval
+            d['_expired_time'] = datetime.datetime.now() + datetime.timedelta(minutes=self.config_expired_minutes)
+            logging.info('get conf from mysql success conf is {}'.format(d))
+            return d
+        except Exception, e:
+            logging.error('cannot update config from mysql, err msg is {}'.format(e), exc_info=True)
+            return None
 
     def redisavail(self,redis_instant):
         '''检查 redis 服务状态，等待上线'''
@@ -117,22 +139,27 @@ class Rdsreport(object):
         # print result
         try:
             s = json.loads(result)
+            if self.config_dict['_expired_time'] < datetime.datetime.now():
+                self.config_dict = self.get_conf()
             # for key in s:
             #     print key
             #     msgtype, trantime, num  = key, s[key][0]['time'], s[key][0]['num']
             try:
                 msgtype, trantime, num = s['msgtype'], s['time'], int(s['num'])
-
-                timelist = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60]
+                # timelist = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60]
                 # 5分钟的时间间隔
-                # timelist = filter(lambda x: x % 5 == 0, range(61))
-                trantimeobj = datetime.datetime.strptime(trantime, '%Y-%m-%d %H:%M:%S')
-                statmin = trantimeobj.minute
-                for l in timelist:
-                    index = timelist.index(l)
-                    if timelist[index]<= statmin < timelist[index+1]:
-                        statmin = timelist[index]
-                statimeobj = trantimeobj.replace(minute=statmin, second=0)
+                time_interval = self.config_dict.get(msgtype, 0)
+                if time_interval != 0:
+                    timelist = filter(lambda x: x % time_interval == 0, range(61))
+                    trantimeobj = datetime.datetime.strptime(trantime, '%Y-%m-%d %H:%M:%S')
+                    statmin = trantimeobj.minute
+                    for l in timelist:
+                        index = timelist.index(l)
+                        if timelist[index]<= statmin < timelist[index+1]:
+                            statmin = timelist[index]
+                    statimeobj = trantimeobj.replace(minute=statmin, second=0)
+                else:
+                    statimeobj = datetime.datetime.strptime(trantime, '%Y-%m-%d %H:%M:%S')
                 #msgtype = random.choice(['cjolsearch_success','cjolsearch_needlogin', 'cjolsearch_attachement'])
                 s['time'] = statimeobj
                 # return [statimeobj, msgtype ,num]
@@ -166,6 +193,17 @@ class Rdsreport(object):
             self.mysql_reconnect()
         return True
 
+    def sql_select(self, msgtype, statimeobj, ext1, ext2, ext3):
+        try:
+            sql = """select id from stats where msgtype ="{}"
+                            and stat_time ="{}" and ext1 = "{}" and ext2 = "{}" and ext3 = "{}"
+                            limit 1;
+                            """.format(msgtype, statimeobj, ext1, ext2, ext3)
+            b = self.cursor.execute(sql)
+            return b
+        except Exception, e:
+            logging.error('select err msg is {}'.format(e), exc_info=True)
+
 
     def mysqlhandle(self):
         '''从redis handle 得到 statimeobj, msgtype ,num， while 循环写入mysql'''
@@ -175,6 +213,10 @@ class Rdsreport(object):
         # except (AttributeError, MySQLdb.OperationalError):
         #     print 'lost connect with MySQL'
         #     db = MySQLdb.connect(**self.sql_config)
+        self.config_dict = self.get_conf()
+        if self.config_dict is None:
+            logging.critical('cannot get config from msyql quit ')
+            quit()
         self.mysql_connect()
         self.mysql_reconnect()
         while 1:
@@ -184,7 +226,7 @@ class Rdsreport(object):
                 statimeobj = redisresult['time']
                 msgtype = redisresult['msgtype']
                 num = redisresult['num']
-                ext1 = redisresult.pop('ext1', '').encode('uft-8')
+                ext1 = redisresult.pop('ext1', '')
                 ext2 = redisresult.pop('ext2', '')
                 ext3 = redisresult.pop('ext3', '')
                 # statimeobj, msgtype ,num = redisresult[0], redisresult[1], redisresult[2]
@@ -200,29 +242,28 @@ class Rdsreport(object):
                 #             and stat_time ="{}" and ext1 = "{}" and ext2 = "{}" and ext3 = "{}";
                 #             """.format(msgtype, statimeobj, ext1, ext2, ext3)
                 try:
-                    # db = MySQLdb.connect("localhost","testuser","","reportdb" )
-                    # db = MySQLdb.connect("10.4.14.233","tuike","sv8VW6VhmxUZjTrU","tuike" )
-                    #db = sqlite3.connect('report.db')
                     try:
-                        b = self.cursor.execute(sql_up)
-                        self.db.commit()
-                        if b == 0L:
-                            try:
-                                c = self.cursor.execute(sql_in)
+                        if self.config_dict.get(msgtype, 0) == 0:
+                            self.cursor.execute(sql_in)
+                            logging.debug('insert mysql success')
+                            self.db.commit()
+                        else:
+                            br = self.sql_select(msgtype, statimeobj, ext1, ext2, ext3)
+                            if br == 1L:
+                                self.cursor.execute(sql_up)
                                 self.db.commit()
-                            except:
-                                self.db.rollback()
+                                logging.debug('update mysql success')
+                            else:
+                                self.cursor.execute(sql_in)
+                                logging.debug('insert mysql success')
+                                self.db.commit()
                     except(AttributeError, MySQLdb.OperationalError):
                         self.db.rollback()
                         print 'lost connect with MySQL'
-                        # db = MySQLdb.connect(**self.sql_config)
-                        # cursor = db.cursor()
+                        logging.error('lost connection with mysql')
                         self.mysql_reconnect()
                         pass
-                    # db.close()
                 except (AttributeError, MySQLdb.OperationalError):
-                    # db = MySQLdb.connect(**self.sql_config)
-                    # cursor = db.cursor()
                     self.mysql_reconnect()
                     pass
 
@@ -322,3 +363,4 @@ class Rdsreport(object):
 if __name__ == '__main__':
     r = Rdsreport()
     r.mysqlhandle()
+    # r.get_conf()

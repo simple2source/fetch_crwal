@@ -6,36 +6,41 @@ script to send email daily about the grap user info in MySQL grapuser_info table
 import MySQLdb
 import common
 from prettytable import PrettyTable
+import datetime, time
+import libaccount
 
-sql_config = {
-    'host': "10.4.14.233",
-    'user': "tuike",
-    'passwd': "sv8VW6VhmxUZjTrU",
-    'db': 'tuike',
-    'charset': 'utf8'
-}
+sql_config = common.sql_config
 
-# sql_config = {
-#     'host': "localhost",
-#     'user': "testuser",
-#     'passwd': "",
-#     'db': 'tuike',
-#     'charset': 'utf8'
-# }
+def update_num():
+    try:
+        sql = """select grap_source, user_name from grapuser_info where account_type  = '购买账号'"""
+        db = MySQLdb.connect(**sql_config)
+        cursor = db.cursor()
+        cursor.execute(sql)
+        data = cursor.fetchall()
+        for i in data:
+            a = libaccount.Manage(i[0])
+            ck_str = a.redis_ck_get(i[1])
+            a.num_update(i[0], i[1], ck_str)
+            time.sleep(3)
+    except Exception as e:
+        print Exception, e
+
 
 def grap_info():
     db = MySQLdb.connect(**sql_config)
     cursor = db.cursor()
     sql = """ select grap_source, user_name, account_mark, buy_num, pub_num, expire_time
- from grapuser_info where account_type = '购买账号' """
+ from grapuser_info """ # where account_type = '购买账号' """
     cursor.execute(sql)
     data = cursor.fetchall()
     x = PrettyTable(['来源', '用户名', '地区', '购买余额', '发布余额', '过期时间'])
     for i in data:
-        x.add_row(i)
-    # print x
-    # print x
-    return x.get_html_string(sortby=u"购买余额").encode('utf8')
+        ll = list(i)
+        ll2 = ll[:5] + [str(ll[5])]
+        x.add_row(ll2)
+    db.close()
+    return x.get_html_string(sortby=u"过期时间").encode('utf8')
 
 
 def eformat(html):
@@ -60,6 +65,10 @@ line-height: 20px;
     msg_head = """<html><head><meta charset="utf-8"></head>""" + msg_style + "<body>"
     msg = msg_head + """<h2>简历下载账号信息</h2>"""
     msg2 = grap_info()
+    day_list = [str(datetime.datetime.now().date() + datetime.timedelta(days=x)) for x in xrange(-30, 60)]
+    day_list2 = ['<td>' + x + '</td>' for x in day_list]
+    for i in day_list2:
+        msg2 = msg2.replace(i, i.replace('<td>', '<td style="color:red; text-align:right">'))
     msg = msg + msg2 + "</body></html>"
     msg = msg.replace('<table>', '<table class="table">').replace('<td>', '<td style="text-align:right">').replace('<th>', "<th class='table'>")
     # print msg

@@ -6,20 +6,10 @@ from prettytable import PrettyTable
 import MySQLdb
 import sys
 import copy, re, pprint
+reload(sys)
+sys.setdefaultencoding('utf8')
 
-# sql_config = {
-#     'host': "localhost",
-#     'user': "testuser",
-#     'passwd': "testpassword",
-#     'db': 'reportdb'
-# }
-sql_config = {
-    'host': "10.4.14.233",
-    'user': "tuike",
-    'passwd': "sv8VW6VhmxUZjTrU",
-    'db': 'tuike'
-}
-week_str = (datetime.date.today()-datetime.timedelta(days=7)).strftime('%Y-%m-%d %H:%M:%S')
+week_str = (datetime.date.today()-datetime.timedelta(days=2)).strftime('%Y-%m-%d %H:%M:%S')
 
 class Vividict(dict):
     def __missing__(self, key):
@@ -137,7 +127,7 @@ def c4_list():
     for m in m_list:
         c3 = c3_list(m)
         d.update(c3[1])
-    # pprint.pprint(d)
+    pprint.pprint(d)
     return d
 
 
@@ -161,18 +151,18 @@ def cc_list(module_name):
 
 def msg_list():
     """得到全部msgtype"""
-
     db = MySQLdb.connect(**sql_config)
     # 只统计最近一周的 msgtype
-    sql = '''select distinct msgtype from stats where stat_time > '{}' '''.format(week_str)
+    # sql = '''select distinct msgtype from stats where stat_time > '{}' '''.format(week_str)
+    # sql = """select msgtype from stats_info where `interval` != 0 and msgtype in
+    #     (select distinct(msgtype) from stats where stat_time > '{}')""".format(week_str)
+    sql = """select msgtype from stats_info where stat_big_type in ('crawl', 'account')"""
     # sql = '''select distinct msgtype from stats'''
     cur = db.cursor()
     cur.execute(sql)
     data = cur.fetchall()
     db.close()
-    m_list = []
-    for l in data:
-        m_list.append(l[0])
+    m_list = [i[0] for i in data]
     return m_list
 
 
@@ -236,11 +226,42 @@ def get_msg(msgtype_list):
     return x_msg, x_string, ext_list, x_list, big_dict
 
 
+def list_crr(sql):
+    db = MySQLdb.connect(**sql_config)
+    cursor = db.cursor()
+    print sql
+    cursor.execute(sql)
+    data = cursor.fetchall()
+    ll = [i[0] for i in data]
+    print ll
+    return ll
+
+
+def c5_list():
+    """返回一个有结构的树形字典"""
+    all_msgtype_sql = """select msgtype from stats_info where stat_big_type in ('crawl', 'account')"""
+    all_msgtype = list_crr(all_msgtype_sql)
+    dd = Vividict()
+    for m in all_msgtype:
+        ext1_sql = """select DISTINCT ext1 from stats where msgtype = '{}' and stat_time > '{}' """.format(m, week_str)
+        ll_ext1 = list_crr(ext1_sql)
+        for ll1 in ll_ext1:
+            ext2_sql = """select distinct(ext2) from stats where msgtype = '{}' and ext1 = '{}'  and stat_time > '{}'""".format(m, ll1, week_str)
+            ll_ext2 = list_crr(ext2_sql)
+            for ll2 in ll_ext2:
+                ext3_sql = """select distinct(ext3) from stats where msgtype = '{}' and ext1 = '{}' and ext3 = '{}'  and stat_time > '{}'""".format(m, ll1, ll2, week_str)
+                ll_ext3 = list_crr(ext3_sql)
+                for ll3 in ll_ext3:
+                    dd[m][ll1][ll2][ll3] = {}
+    pprint.pprint(dd)
+    return dd
+
+
 def get_msg2():
     try:
         x_msg = ''
         x_string = ''
-        msg_p ="<br><br><h2>MySQL统计</h2><br>"
+        msg_p ="<br><br><h2>MySQL统计(近3天出现的项）</h2><br>"
         str_p = "\n\n---{}---\n".format('MySQL')
         x = PrettyTable(["msgtype","ext1","ext2",'ext3',"昨天","今天","近1h","近5min"])
         x.align["msgtype"] = "l"
@@ -350,3 +371,8 @@ def html_create():
     # print b_dict
     # print html
     return html, x_string
+
+
+if __name__ == '__main__':
+    # c5_list()
+    c4_list()

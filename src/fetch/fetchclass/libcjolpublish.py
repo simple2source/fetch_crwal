@@ -10,29 +10,20 @@ import re
 from time import gmtime, strftime
 import json, random
 from redispipe import *
+import libaccount
+import logging.config
 from extract_seg_insert import ExtractSegInsert
 # import extract_seg_insert.cjolextract_new
+import libcjolsearch
 
 
-class Cjolpub(BaseFetch):
-    def __init__(self,cookie_fpath='',payload=''):
-        BaseFetch.__init__(self)
-        if os.path.exists(cookie_fpath):
-            self.load_cookie(cookie_fpath)
-        else:
-            logging.debug('cookie file %s not exit.' % cookie_fpath)
-            exit()
-        
+class Cjolpub(libcjolsearch.mainfetch):
+    def __init__(self, ck_str, payload=''):
+        libcjolsearch.mainfetch.__init__(self)
         self.payload = payload
         self.host=r'rms.cjol.com'        
         self.domain='cjol.com'
-        self.module_name='cjolsearch'
-        self.init_path()
-        self .login_wait=300
-        
-        self.ctmname=''
-        self.username=''
-        self.password=''
+        self.module_name='cjolpublish'
         
         self.refer=''
         self.headers={
@@ -42,125 +33,14 @@ class Cjolpub(BaseFetch):
             'Accept':'application/json, text/javascript, */*; q=0.01',
             'Accept-Language': 'zh-CN,zh;q=0.8,en-US;q=0.5,en;q=0.3',
         }
-        
-        self.login_type = 2
-        self.login_at = None
-        self.logout_at = None
-        self.need_login_tags=['<span id="valUserName" style="color:Red;visibility:hidden;">请输入用户名</span>',
-                              '<input id="LoginName" name="UserID" type="text" value="" placeholder="请输入用户名" />']
-        self.resume_tags=['基本信息','简历编号']
-        self.login_success_tag=[]
-        
-        self.cookie_fpath=cookie_fpath
-        self.maxsleeptime=2
-
-    def isResume_chk(self,html):
-        '''功能描述：检查返回内容是否为合格简历'''
-        try:
-            flag = -1
-            if html:
-                if html.find('该简历已设置为不可查看') > -1:
-                    flag = 2
-                if html.find('该求职上传了附件简历,查看联系方式后可下载') > -1:
-                    flag = 3
-                for item in self.need_login_tags:
-                    if item and html.find(item) > -1:
-                        flag = 0
-                        break
-                for sub in self.resume_tags:
-                    if sub and html.find(sub) > -1:
-                        flag =1
-                        break 
-            else:
-                flag = -2
-            if flag < 0 :
-                self.save_error_file(html)                
-            return flag
-        except Exception,e:
-            logging.debug('error msg is %s'% str(e))
-            return -1
-
-        
-    def cookie_notice(self,notify_type=0):
-        '''功能描述：cookie信息提醒，失效/生效'''
-        try:
-            if notify_type == 0:
-                txt_title = self.module_name+' cookie power off'
-                txt_msg=self.module_name+ ' cookie 已经失效，最近一次修改时间:'+ time.strftime('%Y-%m-%d %H:%M:%S',time.localtime(self.cookie_modtime))
-                self.send_mails(txt_title,txt_msg,0)
-                logging.info('cookie power off and %s send notice_mail success' % self.module_name)
-            elif notify_type == 1:
-                txt_title = self.module_name+' cookie login success'
-                txt_msg=self.module_name+ ' cookie 登录成功，cookie最新修改时间:'+ time.strftime('%Y-%m-%d %H:%M:%S',time.localtime(self.cookie_modtime))
-                self.send_mails(txt_title,txt_msg,0)
-                logging.info('cookie login success and %s send notice_mail success' % self.module_name)
-            return True
-        except Exception,e:
-            logging.debug('error msg is %s' % str(e))
-            return False
-        
-    def login(self):
-        '''功能描述：判断登录状态处理登录过程，循环等待cookie更新直至登录cookie可用'''
-        try:
-            # self.load_cookie(self.cookie_fpath)
-            flag = False
-            if self.login_status_chk():
-                flag = True
-            else:
-                #exit(0)
-                self.logout_at = datetime.datetime.now()
-                flag= False
-                self.cookie_notice(0)
-                count = 0
-                while not flag:
-                    try:
-                        count += 1
-                        logging.info('the login action will be executed after %ds ...' % self.login_wait)
-                        time.sleep(self.login_wait)
-                        if os.path.getmtime(self.cookie_fpath) > self.cookie_modtime:
-                            self.load_cookie(self.cookie_fpath)
-                            logging.info('cookie file updated at %s' % time.strftime('%Y-%m-%d %H:%M:%S',time.localtime()))
-                            logging.info('try to login at the count %d ' % count)
-                            if self.login_status_chk():
-                                flag =True
-                                self.cookie_notice(1)
-                                logging.info('success login at the count %d ' % count)
-                        else:
-                            if count % 48 == 0:
-                                self.cookie_notice(0)
-                            read_modtime = time.strftime('%Y-%m-%d %H:%M:%S',time.localtime(os.path.getmtime(self.cookie_fpath)))
-                            record_modtime = time.strftime('%Y-%m-%d %H:%M:%S',time.localtime(self.cookie_modtime))
-                            logging.info('waite cookie update and modtime_read at %s ,modtime record at %s' % (read_modtime,record_modtime))
-                    except Exception,e:
-                        logging.debug('single login error and msg is %s' % str(e))
-                self.login_at=datetime.datetime.now()
-                self.logout_at=None
-            return flag
-        except Exception,e:
-            logging.debug('error msg is %s ' % str(e))
-            return False
-        
-    def login_status_chk(self):
-        '''功能描述：检查当前登录状态是否有效'''
-        try:
-            flag = False
-            count =0
-            while count < 3:
-                count +=1
-                try:
-                    chk_url = r'http://rms.cjol.com/ResumeBank/Resume.aspx?JobSeekerID=1'
-                    html = self.url_get(chk_url)
-                    if self.isResume_chk(html) > 0:
-                        flag = True
-                        break
-                    time.sleep(5)                   
-                except Exception,e:
-                    logging.debug('single status check error and msg is %s' % str(e))
-                       
-            return flag
-        except Exception,e:
-            logging.debug('error msg is %s ' % str(e))
-            return False
+        self.headers['Cookie'] = ck_str
+        with open(json_config_path) as f:
+            ff = f.read()
+        logger = logging.getLogger(__name__)
+        log_dict = json.loads(ff)
+        log_dict['loggers'][""]['handlers'] = ["file", "stream", "pub", "error"]
+        logging.config.dictConfig(log_dict)
+        logging.debug('pub hahahahha')
 
 
     def run_work(self):
@@ -180,20 +60,53 @@ class Cjolpub(BaseFetch):
                 print self.payload
                 html = self.url_post(url, self.payload)
                 print html
+                html_json = json.loads(html)
+                if html_json['Succeded']:
+                    post_id = json.loads(html_json['OtherData'])['JobPostID']
+                    job_url = 'http://www.cjol.com/jobs/job-{}?FromFlag=100'.format(post_id)
+                    res = json.dumps({'status': 'success', 'job_url': job_url, 'msg': 'data from cjol is {}'.format(html)})
+                else:
+                    res = json.dumps({'status': 'fail', 'msg': 'data from cjol is {}'.format(html)})
                 with open('cjolp.html', 'w+') as f:
                     f.write(html)
+                logging.info('cjol return html is {}'.format(html))
+                print res
+                return res
             except Exception,e:
-                print 'lalala',Exception,e
-
+                logging.error('{} username {} publish jobs fail'.format(self.module_name, self.username), exc_info=True)
         except Exception,e:
-            print 'lalala',Exception,e
+            logging.error('{} username {} publish jobs fail'.format(self.module_name, self.username), exc_info=True)
 
 
-
-        
 if __name__ == '__main__':
     print 'test...'
-    ck_path=r'/vagrant/fetch/src/fetch/cookie/cjolsearch/cjols.txt'
-    tk_path=r'/vagrant/fetch/src/fetch/task/cjolsearch/taskzone.txt'
-    a=cjolsearchfetch(ck_path,tk_path)    
+    ck_str = '_isTipsOvered=1; newrms_masterct=newrms08_ct; isFirstLoad=1; ASP.NET_SessionId=iwg3knas4prxswfwcun1izwq; status_id=-1; KwdSearchListOrderBy=UpdateTime%20desc; __utma=97906509.1768109624.1448422117.1462528913.1462531086.975; __utmc=97906509; __utmz=97906509.1456113829.972.119.utmcsr=newrms.cjol.com|utmccn=(referral)|utmcmd=referral|utmcct=/Default; IsLoginFromSMS=0; CjolRmsSsoFormV7=22623543E0771A6280D97EDAA125E9854AC31303F85888AA7C51209C3AB9F3704E941EFBB1445C2FFA62B0538FC97F3293D04A8D139E5C0E526C5A061BECD916B32189AD7412510267CCB2AFB671179D14ADF200E08E80FB60FCDAFE5128BD348FF35A7B540BB62C4486C18F73554ED104061ADF20A0157BC7E70B585596765B22FFD31290887AFE7A10F6F4B92CEB0C1E10FFB497BB529299748F65CAF9EBA2B254E5995A903250B5048838B5D97E7E3128F09874909F25E349C34E74F44BA7C47898CFB06884D66FDFCAD0606CCDC6236FB2ACFC45D5F8870FCC8CDE145B19EB957880760C6A57C2908712D8C32834ECD874D43DF4C2F96186D7C748993FE0C34E0F3476A2D095CE70512CBA414F2D4585CB16AEEB41D3A46A73F2606DF2F3F79390624992A3BD7395330667CAF6410FDEA91A4D02492599C3BEA3761EFC304817A6EAA0D47DDCBD3D7A93464DAE369CEDD19263600566FC0285DC23FDF7CFB797B50EE15A66570A3E88D6B8723FEB75CFDBE6D089D649F56C4CAA7EB9E490D10A085AF38CED99F8D77A192EF0B9AA48150250FC0CA2E925D2BCCF2CE8119ED0A30CAE8CA04C329A8FFD8EB289D403CEAFA2198F385A334F7B1159EBA38CEAF092F510CA50F8BEA00D9A5D8F182C7B9EF64CC82DB463740894FE8EA0594E351C6271322F0892E5677C98FE594C5E85B9ABEA6F616EFE1E6C02DE44B400782518E6D7A0BCCC3C2B41FB61F26A6521179691C34F6458B71983A0B69A581466C268B82C6A47B64049AEA4CF8341831F76417B0E261B2EF1C4AFFBBF3446F67DFAD441644EAF2C0BA799C4E1ED55FD393F51722D6B1A4198CA563C7CB3133EA23AFE1AFDAC8150FF57679994E237C9E1D6FCB60D7C2B3E5318118D3DFFFE43EEBBD8E7C61FC6502DD45BD4EA012B7C98009BDD11DA477DF9E535B239A748B76E0E30B4612EF3003C3C73D32342D847022FAB86283FF4D72C60A41D44695222B3BE73D647BE560913471024003ADE17E50EFBBFF401F85F6BE06F0E03D07CDD8115D45C64220CA3CF873FAA0884B10FA51810E3138BF0FAA18499F7D04D9AEFF75CD08921F72809DBDF5142A1A3110244C27CEB214F2A5EA320E70D9B76A84DE982A522B8B76D605271CBBCE0A6509ED55B1C25C9FEDD9FB55C73C8B5308758AD52BA1235F913163268C6A1D743C63DF469271F3A95ED9B705CFF186D81ECCFDB0119EB0967451A4CE86906FF434D6A32BD96F89C411A29F52B93A492C050ED191E2F4F907E4DDAC6B196308C0C88BC8638DC7D4BC5F94365298CC7ACAAF63E8A7AD27BD50FA51FC80911E5AEA92F057345AD90B263377A9A3808AEFADFB9E8157860C67BE0A1E44DFABF666E919BE58F5022361A09E15D15812A27DDFE8B83C1C42B310E113D445EDDA7B6BF96D13C0A6E012AAF96EE88EA2B2CDEECAFE19F5DA599B73A239EB488BC74121E61A6C4173E426D2EC3798999607705D083A1047666A4B0A40982BC3E21D6B1551BC39C2C6A4CCA976511B4F996F73C3ADBAC4B8AB47DDD47886993260D1A4607732EF5E536A360ADB71282A14779E10A1A0CE9F4F7E6026DFBE6E0C741B2CB1E4C8DC5960D2B6710DE518F4C15762D65BFB2FFC467C8DEF57D9F2627D25EF9285E6773E25498074CF9E741BE7528CA3A421EFE631B7A5A7C49; ServerID=0; CompanyID=317080; CurrentUserGUID=D61DBB9767EE3983328CE7356E40A044; Hm_lvt_36534f4826de8bde820fa4722f1fa7e8=1461050603; Hm_lpvt_36534f4826de8bde820fa4722f1fa7e8=1463468165; mobilenumber=null; isPopup=true'
+    source_json = {
+        'source': 'cjol',
+        'job_detail': {
+            'job_name': 'lal34ala2222',  # 职位名称
+            'job_type': '硬件测试',  # 职位类别  这个的话51 的选择太多，先不做判断
+            'work_type': '全职',  # 工作性质 全职，兼职
+            'city': '广州',  # 发布城市
+            'district': '海珠区',  # 区
+            'work_address': '高大上',  # 上班地址
+            'job_num': '15',  # 招聘人数
+            'salary': '19320',  # 月薪，输入数字， 判断选择范围
+            'work_year': '3',  # 工作年限，输入数字，判断选择范围
+            # 可选
+            'degree': '博士',  # 学历
+            'major': '计算机科学与技术',  # 专业  智联不需要
+            # 'publish_day': '2015-12-31',  # 发布日志，只有cjol有
+            # 'department': '',  所属公司部门，意义不大
+            # 'sex': '男',  # 性别  51job 没有 只有 cjol 有,  智联把区分性别当做歧视
+            'welfare': '五险一金 222 111 高温补贴',  # 福利 以空白做分隔符
+            'keyword': '前景 高薪',  # 职位关键词，方便搜索
+            'email': 'a@a.com',  # 接受系统自动转发的简历
+            'job_describe': '大家好，大家好，大家好。',  # 这是职位描述，用户自行添加
+        }
+    }
+    import libpublish
+    c = libpublish.Cjol(source_json)
+    payload = c.j_payload()
+    a=Cjolpub(ck_str, payload)
     a.run_work()

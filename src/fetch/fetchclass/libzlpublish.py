@@ -7,35 +7,21 @@ from dbctrl import *
 import sys
 import json
 from bs4 import BeautifulSoup
+from libzhilian import zhilianfetch
+import libaccount
+import logging.config
 reload(sys)
 sys.setdefaultencoding('utf8')
 
 
-class zhilianpub(BaseFetch):
-    def __init__(self, cookie_fpath, payload):
-        BaseFetch.__init__(self)
-        if os.path.exists(cookie_fpath):
-            self.load_cookie(cookie_fpath)
-        else:
-            logging.debug('cookie file %s not exit.' % cookie_fpath)
-            exit()
-        # try:
-        #     with open(json_file) as f:
-        #         self.json_string = json.load(f)
-        # except Exception, e:
-        #     print 'load json_file error', Exception, e
+class zhilianpub(zhilianfetch):
+    def __init__(self, ck_str, payload):
+        zhilianfetch.__init__(self)
         # self.payload = urllib.urlencode(j_payload(self.json_string))
         self.payload = payload
         self.host=r'jobads.zhaopin.com'
         self.domain='zhaopin.com'
         self.module_name='zlpublish'
-        self.init_path()
-        self .login_wait=300
-
-        self.ctmname=''
-        self.username=''
-        self.password=''
-
         self.refer=''
         self.headers={
             'Host':self.host,
@@ -46,192 +32,20 @@ class zhilianpub(BaseFetch):
             'Content-Type':'application/x-www-form-urlencoded; charset=UTF-8',
             'Accept-Language':'zh-CN,zh;q=0.8',
         }
-
-        self.login_type = 2
-        self.login_at = None
-        self.logout_at = None
-        self.need_login_tags=['<td colspan="2" class="loginbar">',
-                              '<input type="button" onclick="loginSubmit']
-
-        self.resume_tags=['<div id="divResume"><style>','简历编号']
-        self.login_success_tag=[]
-
-        self.cookie_fpath=cookie_fpath
-        # self.taskfpath=task_fpath
-        self.inuse_taskfpath=''
-        # self.years=['7C1', '7C2', '7C3', '7C4', '7C5', '7C6', '7C7', '7C8']
-        self.gender = ['7C0', '7C1']
-        self.degree = ['7C5', '7C6', '7C7', '7C8']
-        # self.degree = ['7C5', '7C6']
-        self.area = ['7C040000', '7C030200', '7C010000', '7C020000']
-        # self.area = ['7C040000', '7C030200']
-        self.now_time = datetime.datetime.now()
-        self.yes_time = self.now_time + datetime.timedelta(days=-2)
-        self.yester_time = self.yes_time.strftime('%Y-%m-%d')
-        self.years_age_gender = []
-        self.area_degree = []
-
-        #用于记录执行号段任务的参数，起始/结束/当前
-        self.start_num=0
-        self.end_num=0
-        self.current_num=self.start_num
-        self.maxsleeptime = 5
-
-    def parse_cookie(self,fpath):
-        '''功能描述：从cookie之中解析出来用户名，进而初始化企业名信息'''
-        try:
-            if os.path.exists(fpath):
-                f=open(fpath)
-                tmp_str=f.read()
-                f.close()
-                ck_dict=urlparse.parse_qs(tmp_str)
-                if ck_dict.keys().count('UserName') == 1:
-                    self.username=ck_dict['UserName'][0]
-                    if job51_account_info.has_key(self.username):
-                        self.ctmname=job51_account_info[self.username]
-            return True
-        except Exception,e:
-            logging.debug('error msg is %s' % str(e))
-            return False
-
-
-    def isResume_chk(self,html):
-        '''功能描述：检查返回内容是否为合格简历'''
-        try:
-            flag = -1
-            if html:
-                if html.find('此人简历保密') > -1:
-                    flag = 2
-                if html.find('屏蔽') > -1:
-                    flag = 3
-                if html.find('操作频繁') > -1:
-                    flag = 4
-                for item in self.need_login_tags:
-                    if item and html.find(item) > -1:
-                        flag = 0
-                        break
-                for sub in self.resume_tags:
-                    if sub and html.find(sub) > -1:
-                        flag =1
-                        break
-            else:
-                flag = -2
-            if flag < 0 :
-                self.save_error_file(html)
-            return flag
-        except Exception,e:
-            logging.debug('error msg is %s'% str(e))
-            return -1
-
-
-    def cookie_notice(self,notify_type=0):
-        '''功能描述：cookie信息提醒，失效/生效'''
-        try:
-            if notify_type == 0:
-                txt_title = self.module_name+' cookie power off'
-                txt_msg=self.module_name
-                if self.ctmname:
-                    txt_msg += ' 企业名称:'+self.ctmname
-                if self.username:
-                    txt_msg +=' 用户名:'+self.username
-                txt_msg += ' cookie 已经失效，最近一次修改时间:'+ time.strftime('%Y-%m-%d %H:%M:%S',time.localtime(self.cookie_modtime))
-                txt_msg += '<br> cookie path '+self.cookie_fpath
-                self.send_mails(txt_title,txt_msg,0)
-                cookie_old = self.cookie_fpath
-                os.rename(cookie_old, cookie_old+'_old')
-                logging.info('cookie power off and %s send notice_mail success' % self.module_name)
-            elif notify_type == 1:
-                txt_title = self.module_name+' cookie login success'
-                txt_msg=self.module_name
-                if self.ctmname:
-                    txt_msg += ' 企业名称:'+self.ctmname
-                if self.username:
-                    txt_msg += ' 用户名:'+self.username
-                txt_msg +=  ' cookie 登录成功，cookie最新修改时间:'+ time.strftime('%Y-%m-%d %H:%M:%S',time.localtime(self.cookie_modtime))
-                txt_msg += '<br> cookie path '+self.cookie_fpath
-                logging.info('cookie login success and %s send notice_mail success' % self.module_name)
-            return True
-        except Exception,e:
-            logging.debug('error msg is %s' % str(e))
-            return False
-
-    def login(self):
-        '''功能描述：判断登录状态处理登录过程，循环等待cookie更新直至登录cookie可用'''
-        try:
-            self.load_cookie(self.cookie_fpath)
-            self.parse_cookie(self.cookie_fpath)
-            flag = False
-            if self.login_status_chk():
-                flag = True
-            else:
-                #exit(0)
-                self.logout_at = datetime.datetime.now()
-                flag = False
-                self.cookie_notice(0)
-                count = 0
-                while not flag:
-                    try:
-                        count += 1
-                        logging.info('the login action will be executed after %ds ...' % self.login_wait)
-                        time.sleep(self.login_wait)
-                        if os.path.exists(self.cookie_fpath):           # 判断cookie文件是否存在
-                            if os.path.getmtime(self.cookie_fpath) > self.cookie_modtime:
-                                self.load_cookie(self.cookie_fpath)
-                                self.parse_cookie(self.cookie_fpath)
-                                logging.info('cookie file updated at %s' % time.strftime('%Y-%m-%d %H:%M:%S',time.localtime()))
-                                logging.info('try to login at the count %d ' % count)
-                                if self.login_status_chk():
-                                    flag =True
-                                    self.cookie_notice(1)
-                                    logging.info('success login at the count %d ' % count)
-                            else:
-                                if count % 240 == 0:
-                                    self.cookie_notice(0)
-                                read_modtime = time.strftime('%Y-%m-%d %H:%M:%S',time.localtime(os.path.getmtime(self.cookie_fpath)))
-                                record_modtime = time.strftime('%Y-%m-%d %H:%M:%S',time.localtime(self.cookie_modtime))
-                                logging.info('waite cookie update and modtime_read at %s ,modtime record at %s' % (read_modtime,record_modtime))
-                        else:
-                            logging.info('cookie file in %s is not exist... ' % self.cookie_fpath)
-                            continue
-                    except Exception,e:
-                        logging.debug('single login error and msg is %s' % str(e))
-                self.login_at=datetime.datetime.now()
-                self.logout_at=None
-            return flag
-        except Exception,e:
-            logging.debug('error msg is %s ' % str(e))
-            return False
-
-    def login_status_chk(self):
-        '''功能描述：检查当前登录状态是否有效'''
-        try:
-            flag = False
-            count =0
-            while count < 3:
-                count +=1
-                try:
-                    chk_url = r'http://ehire.51job.com/Candidate/ResumeView.aspx?hidUserID=10010'
-                    html = self.url_get(chk_url)
-                    if self.isResume_chk(html) > 0:
-                        flag = True
-                        break
-                    time.sleep(5)
-                except Exception,e:
-                    logging.debug('single status check error and msg is %s' % str(e))
-            return flag
-        except Exception,e:
-            logging.debug('error msg is %s ' % str(e))
-            return False
-
+        self.headers['Cookie'] = ck_str
+        with open(json_config_path) as f:
+            ff = f.read()
+        logger = logging.getLogger(__name__)
+        log_dict = json.loads(ff)
+        log_dict['loggers'][""]['handlers'] = ["file", "stream", "pub", "error"]
+        logging.config.dictConfig(log_dict)
+        logging.debug('pub hahahahha')
 
     def run_work(self):
         '''功能描述：执行任务主工作入口函数'''
         try:
             # self.load_task()
             # 不需要检查登陆态
-            #begin_num=self.current_num
-            self.load_cookie(self.cookie_fpath)
-            print 11111111111111
 
             self.refer = 'http://jobads.zhaopin.com/Position/PositionManage'
             self.headers['Referer']=self.refer
@@ -248,7 +62,7 @@ class zhilianpub(BaseFetch):
                 permission = soup.find('input', {'name': 'HavePermissionToPubPosition'}).get('value')
                 self.payload['HavePermissionToPubPosition'] = permission
                 self.payload['DateEnd'] = soup.find('input', {'id': 'DateEnd', 'name': 'DateEnd'}).get('value')
-                self.payload['PriorityRule'] = soup.find('input', {'id': 'PriorityRule', 'name': 'PriorityRule'}).get('value') # 扣除点数，应该要多个账号看一下
+                # self.payload['PriorityRule'] = soup.find('input', {'id': 'PriorityRule', 'name': 'PriorityRule'}).get('value') # 扣除点数，应该要多个账号看一下
                 self.payload['DepartmentId'] = soup.find('input', {'id': 'DepartmentId', 'name': 'DepartmentId'}).get('value')
                 self.payload['CanPubPositionQty'] = soup.find('input', {'id': 'CanPubPositionQty', 'name': 'CanPubPositionQty'}).get('value')
                 self.payload['IsCorpUser'] = soup.find('input', {'id': 'IsCorpUser', 'name': 'IsCorpUser'}).get('value')
@@ -257,12 +71,8 @@ class zhilianpub(BaseFetch):
                 self.payload['btnAddClick'] = 'saveasnotpub'   #todo 保存不发布，改成 'saveandpub'  是发布
                 # self.payload['PositionApplyReply'] = '-1'
             except Exception, e:
-                print Exception, str(e), 1111111111111112222222222222
+                logging.error('{} set get payload error'.format(self.module_name), exc_info=True)
 
-
-            #get stateid form page
-
-            # try to prase the html
             try:
                 #login check and send cookie off email
                 url_post = 'http://jobads.zhaopin.com/Position/PositionAdd'
@@ -273,35 +83,45 @@ class zhilianpub(BaseFetch):
                 print html
                 with open('zlpu.html', 'w+') as f:
                     f.write(html)
+                logging.info('zhilian return html is {}'.format(html))
+                return html
+                # return json.dumps({'status': 'success', 'msg': html})
 
             except Exception, e:
-                print Exception, str(e), 988888888888888
-                pass
+                logging.error('{} username {} publish jobs fail'.format(self.module_name, self.username), exc_info=True)
+                # self.send_mails()
         except Exception, e:
-            print Exception, str(e), 999999999999999
-            pass
+            logging.error('{} username {} publish jobs fail'.format(self.module_name, self.username), exc_info=True)
 
 if __name__ == '__main__':
     print 'test...'
-    # ck_path=r'C:\python space\fetch\cookie\cjol.txt'
-    ck_path=r'/home/vagrant/share/fetch/src/fetch/cookie/zl.txt'
-    # tk_path=r'C:\python space\fetch\task\task_0001.txt'
-    tk_path= json_str
-    moudle_name=''#抓取模块名称
-    # ck_path=''#cookie路径
-    # tk_path=''#task任务路径  json_file
-    id_num=''#简历id下载
-    # try:
-    #     # moudle_name=sys.argv[1]
-    #     ck_path=sys.argv[1]
-    #     tk_path=sys.argv[2]
-    # except:
-    #     pass
-    # if moudle_name == 'cjol':
-    if ck_path and tk_path:
-        print 1111111111
-        work_line=zhilianpub(ck_path, tk_path)
-        work_line.run_work()
-    # a=job51pub(ck_path,tk_path)
-    # a.maxsleeptime=0
-    # a.run_work
+    ck_str = 'recharge=1; pageReferrInSession=; dywez=95841923.1463470759.1.1.dywecsr=(direct)|dyweccn=(direct)|dywecmd=(none)|dywectr=undefined; Hm_lvt_38ba284938d5eddca645bb5e02a02006=1463470759; Hm_lpvt_38ba284938d5eddca645bb5e02a02006=1463470760; _jzqa=1.74242765989378350.1463470761.1463470761.1463470761.1; _jzqc=1; _jzqx=1.1463470761.1463470761.1.jzqsr=zhaopin%2Ecom|jzqct=/.-; _jzqckmp=1; pcc=r=1411505711&t=0; JsOrglogin=1986914963; xychkcontr=22794268%2c0; lastchannelurl=http%3A//rd2.zhaopin.com/portal/myrd/regnew.asp%3Fza%3D2; cgmark=2; JsNewlogin=662304987; isNewUser=1; utype=0; RDpUserInfo=; RDsUserInfo=316629614E724264507356664073576A436551645E6D5673497428663D645B7340675F7755680666076142724664577353664873326A396555645D6D2F733C7459664864247337675777576856665A614A724064547352664B735C6A356526645B6D8F1EFB2F1EFE07352026D2358B380A08CC328FEA7A1524F20A229C354873336A3A655564546D5A73377429664E64557333671B7714684A660E611C7219645D73376627735A6A46655364276D35734F7451665E64577344674A775468526657614A724F64227320664E73566A46655A645F6D5073457450664764547348672E772B6859665E614672446404730E664273556A46655F645D6D2D733F7459664364567343675B77556854665D6147724F64257320664E73526A446558645D6D20733E74596643645D7326672B7758685F662E6132724964257327664173556A40655164526D537344745C6642645D7337672B77586827662E614172466451735D664773556A41655064576D25734B7454664164537343675A77556857665D61437244645D73206630735A6A47655364356D28734F74576648642F7323675777576850665F615D724564577356664873326A23655564576D517341745F666; dywea=95841923.3041251860399168500.1463470759.1463470759.1463470759.1; dywec=95841923; dyweb=95841923.18.8.1463472447298; getMessageCookie=1; __utmt=1; __utma=269921210.169431759.1463470761.1463470761.1463472578.2; __utmb=269921210.2.10.1463472578; __utmc=269921210; __utmz=269921210.1463472578.2.2.utmcsr=jobads.zhaopin.com|utmccn=(referral)|utmcmd=referral|utmcct=/Position/PositionAdd'
+    source_json = {
+        'source': '51job',
+        'job_detail': {
+            'job_name': 'lal34ala2222',  # 职位名称
+            'job_type': '硬件测试',  # 职位类别  这个的话51 的选择太多，先不做判断
+            'work_type': '全职',  # 工作性质 全职，兼职
+            'city': '广州',  # 发布城市
+            'district': '海珠区',  # 区
+            'work_address': '高大上',  # 上班地址
+            'job_num': '15',  # 招聘人数
+            'salary': '19320',  # 月薪，输入数字， 判断选择范围
+            'work_year': '3',  # 工作年限，输入数字，判断选择范围
+            # 可选
+            'degree': '博士',  # 学历
+            'major': '计算机科学与技术',  # 专业  智联不需要
+            # 'publish_day': '2015-12-31',  # 发布日志，只有cjol有
+            # 'department': '',  所属公司部门，意义不大
+            # 'sex': '男',  # 性别  51job 没有 只有 cjol 有,  智联把区分性别当做歧视
+            'welfare': '五险一金 222 111 高温补贴',  # 福利 以空白做分隔符
+            'keyword': '前景 高薪',  # 职位关键词，方便搜索
+            'email': 'a@a.com',  # 接受系统自动转发的简历
+            'job_describe': '大家好，大家好，大家好。',  # 这是职位描述，用户自行添加
+        }
+    }
+    import libpublish
+    c = libpublish.Zhilian(source_json)
+    payload = c.j_payload()
+    a=zhilianpub(ck_str, payload)
+    a.run_work()

@@ -17,6 +17,7 @@ import selectuser, liblogin
 import shutil
 import libaccount
 import logging.config
+import copy
 
 class job51search(BaseFetch):
     def __init__(self, cookie_fpath='', task_fpath=''):
@@ -63,7 +64,7 @@ class job51search(BaseFetch):
         self.inuse_taskfpath = ''
         # self.years=['7C1', '7C2', '7C3', '7C4', '7C5', '7C6', '7C7', '7C8']
         self.gender = ['7C0', '7C1']
-        self.degree = ['7C5', '7C6', '7C7', '7C8']
+        self.degree = ['7C6', '7C7', '7C8']
         # self.degree = ['7C5', '7C6']
         self.area = ['7C040000', '7C030200', '7C010000', '7C020000']
         # self.area = ['7C040000', '7C030200']
@@ -73,8 +74,8 @@ class job51search(BaseFetch):
         self.yester_time = self.yes_time.strftime('%Y-%m-%d')
         self.years_age_gender = []
         self.area_degree = []
-        self.convert_dict = {'7C010000': '北京', '7C020000': '上海', '7C030200': '广州', '7C040000': '深圳', '7C5': '大专',
-                             '7C6': '本科', '7C7': '硕士', '7C8': 'MBA以上', '7C1%7C1': '在读学生', '7C2%7C2': '应届毕业生',
+        self.convert_dict = {'7C010000': '北京', '7C020000': '上海', '7C030200': '广州', '7C040000': '深圳',
+                             '7C6': '本科', '7C7': '硕士', '7C8': 'MBA以上',
                              '7C3%7C3': '1-2年', '7C4%7C4': '2-3年', '7C5%7C5': '3-4年', '7C6%7C6': '5-7年',
                              '7C7%7C7': '8-9年', '7C8%7C8': '10年以上', '7C8%7C99': '10年以上'}
         # 用于记录执行号段任务的参数，起始/结束/当前
@@ -373,7 +374,8 @@ class job51search(BaseFetch):
                 count += 1
                 try:
                     chk_url = r'http://ehire.51job.com/Candidate/ResumeView.aspx?hidUserID=10010'
-                    html = self.url_get(chk_url)
+                    self.rand_ua()
+                    html = self.rand_get(chk_url)
                     if self.isResume_chk(html) > 0:
                         flag = True
                         break
@@ -398,29 +400,34 @@ class job51search(BaseFetch):
             flag = False
             # self.account = libaccount.Manage(source='51job', option='down')
             redis_key_list = self.account.uni_user(time_period=self.time_period, num=self.time_num, hour_num=self.hour_num, day_num=self.day_num)
-            print redis_key_list, 8888888888
+            # print redis_key_list, 8888888888
+            redis_key_list2 = copy.deepcopy(redis_key_list)
+            for i in ['cookie51_shengde2', 'cookie51_shengde6', 'cookie51_shengde7', 'cookie51_shengde8']:
+                if i in redis_key_list2:
+                    redis_key_list.extend([i] * 2)
             if len(redis_key_list) > 0:
                 while len(redis_key_list) > 0 and not flag:
                     redis_key = random.choice(redis_key_list)
                     redis_key_list.remove(redis_key)
                     self.username = redis_key.split('_')[1].encode('utf-8')
-                    print(self.username), 99999999999
+                    logging.info('51 get username is {}'.format(self.username))
+                    # print(self.username), 99999999999
                     self.ck_str = self.account.redis_ck_get(self.username)
-                    print self.ck_str
+                    # print self.ck_str
                     self.headers['Cookie'] = self.ck_str
                     if self.login_status_chk():
                         flag = True
-                        print self.username * 100
+                        # print self.username * 100
                         logging.info('switching {} username {} success. '.format(self.module_name, self.username))
                     else:
                         sql_res = self.account.sql_password(self.username)
-                        print sql_res
+                        # print sql_res
                         self.account.redis_ck_ex(self.username)  # 更新该用户名的cookie失效时间
                         self.password = sql_res[1]
                         self.ctmname = sql_res[0].encode('utf-8')
-                        print self.password, self.username, self.ctmname
+                        # print self.password, self.username, self.ctmname
                         l_login = liblogin.Login51(cn=self.ctmname, un=self.username, pw=self.password)
-                        self.ck_str = l_login.main(sleep=30)
+                        self.ck_str = l_login.main(sleep=5)
                         self.headers['Cookie'] = self.ck_str
                         if self.login_status_chk():
                             self.account.redis_ck_set(self.username, self.ck_str)
@@ -566,7 +573,9 @@ class job51search(BaseFetch):
                             uplink = None
                             while not uplink:
                                 try:
-                                    html = self.url_post(url, post_data1)
+                                    self.rand_sleep()
+                                    self.rand_ua()
+                                    html = self.rand_post(url, post_data1)
                                     if html.find('id="Login_btnLoginCN"') > 0:
                                         self.login2()
                                     if html.find('抱歉，没有搜到您想找的简历') > 0:
@@ -641,7 +650,8 @@ class job51search(BaseFetch):
                                             req_count += 1
                                             try:
                                                 logging.info('begin to get resume %s from Internet' % str(x))
-                                                urlhtml = self.url_get(urllink)
+                                                self.rand_ua()
+                                                urlhtml = self.rand_get(urllink)
                                                 isResume = self.isResume_chk(urlhtml)
                                                 if isResume == -2:
                                                     req_count = 0
@@ -776,7 +786,7 @@ class job51search(BaseFetch):
                 with open('db/' + self.age[0] + '.log', 'a+') as fin_fetch:
                     fin_fetch.write(start_time + ' - ' + fin_fetch_time + ' ' + self.taskfpath + '---' + '\n')
                 print self.username + 'will sleep' + '----------'
-                time.sleep(500 * 2)
+                time.sleep(2000 * 2)
         except Exception, e:
             print traceback.format_exc()
             logging.debug('error msg is %s' % str(e))

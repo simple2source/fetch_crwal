@@ -9,6 +9,7 @@ sys.setdefaultencoding('utf8')
 import liblagoucompany
 import common
 import lgtransfer
+import MySQLdb
 
 
 # # 按这个入口只能翻到300页左右，需要细分条件。  2-1-1  用遍历id方式爬所有公司
@@ -93,31 +94,32 @@ header = {
 
 def sql_lg(source='', company_id=''):
     """找出table source 中是否已经存在有 url，有就不更新，对于爬所有职位而言"""
-    sql = """select company_id from {} WHERE company_id ='{}' """.format(source, company_id)
-    db = sqlite3.connect('lagou.db')
+    sql = """select company_id from companycrawl WHERE company_id ='{}' """.format( company_id)
+    db = MySQLdb.connect(**common.sql_config)
+    # db = sqlite3.connect('lagou.db')
     cursor = db.cursor()
-    sql_cr = ''' create table If not EXISTS {}
-            (
-            company_id varchar(255) PRIMARY key,
-            company_name varchar(255),
-            company_verify varchar(255),
-            company_type varchar(255),
-            company_process varchar(255),
-            company_product varchar(255),
-            company_city varchar(255),
-            company_inurl varchar(255),
-            company_size varchar(255),
-            job_num varchar(255),
-            job_percent varchar(255),
-            job_day varchar(255),
-            last_login varchar(255),
-            company_leader varchar(255),
-            company_url varchar(255),
-            company_word varchar(255),
-            job_feedback varchar(255)
-            )'''.format(source)
-    cursor.execute(sql_cr)
-    db.commit()
+    # sql_cr = ''' create table If not EXISTS {}
+    #         (
+    #         company_id varchar(255) PRIMARY key,
+    #         company_name varchar(255),
+    #         company_verify varchar(255),
+    #         company_type varchar(255),
+    #         company_process varchar(255),
+    #         company_product varchar(255),
+    #         company_city varchar(255),
+    #         company_inurl varchar(255),
+    #         company_size varchar(255),
+    #         job_num varchar(255),
+    #         job_percent varchar(255),
+    #         job_day varchar(255),
+    #         last_login varchar(255),
+    #         company_leader varchar(255),
+    #         company_url varchar(255),
+    #         company_word varchar(255),
+    #         job_feedback varchar(255)
+    #         )'''.format(source)
+    # cursor.execute(sql_cr)
+    # db.commit()
     cursor.execute(sql)
     data = cursor.fetchall()
     da = cursor.rowcount
@@ -129,56 +131,62 @@ def sql_lg(source='', company_id=''):
 
 def sql_lg_main(source='', job_dict='', url='', company_id=''):
     """找出table source 中是否已经存在有 url，有就不更新，对于爬所有职位而言"""
-    db = sqlite3.connect('lagou.db')
+    db = MySQLdb.connect(**common.sql_config)
+    # db = sqlite3.connect('lagou.db')
     cursor = db.cursor()
-    sql_cr = ''' create table If not EXISTS {}
-            (
-            company_id varchar(255) PRIMARY key,
-            company_name varchar(255),
-            company_verify varchar(255),
-            company_type varchar(255),
-            company_process varchar(255),
-            company_product varchar(255),
-            company_city varchar(255),
-            company_inurl varchar(255),
-            company_size varchar(255),
-            job_num varchar(255),
-            job_percent varchar(255),
-            job_day varchar(255),
-            last_login varchar(255),
-            company_leader varchar(255),
-            company_url varchar(255),
-            company_word varchar(255),
-            job_feedback varchar(255)
-            )'''.format(source)
-    cursor.execute(sql_cr)
-    db.commit()
-    sql_up = ''' update {} SET company_name='{}',company_verify='{}',company_type='{}',company_process='{}',
+    # sql_cr = ''' create table If not EXISTS {}
+    #         (
+    #         company_id varchar(255) PRIMARY key,
+    #         company_name varchar(255),
+    #         company_verify varchar(255),
+    #         company_type varchar(255),
+    #         company_process varchar(255),
+    #         company_product varchar(255),
+    #         company_city varchar(255),
+    #         company_inurl varchar(255),
+    #         company_size varchar(255),
+    #         job_num varchar(255),
+    #         job_percent varchar(255),
+    #         job_day varchar(255),
+    #         last_login varchar(255),
+    #         company_leader varchar(255),
+    #         company_url varchar(255),
+    #         company_word varchar(255),
+    #         job_feedback varchar(255)
+    #         )'''.format(source)
+    # cursor.execute(sql_cr)
+    # db.commit()
+    sql_up = ''' update companycrawl SET company_name='{}',company_verify='{}',company_type='{}',company_process='{}',
     company_product='{}',company_city='{}',company_inurl='{}',company_size='{}',job_num='{}',job_percent='{}',
-    job_day='{}',last_login='{}',job_feedback='{}',company_leader='{}', company_url='{}', company_word='{}'
+    job_day='{}',last_login='{}',job_feedback='{}',company_leader='{}', company_url='{}', company_word='{}',
+    company_short_name='{}', company_desc='{}', tag='{}', logo='{}'
     where  company_id='{}'
-    '''.format(source, job_dict['company_name'], job_dict['company_verify'], job_dict['company_type'], job_dict['company_process'],
+    '''.format(job_dict['company_name'], job_dict['company_verify'], job_dict['company_type'], job_dict['company_process'],
                job_dict['company_product'], job_dict['company_city'], url,
                job_dict['company_size'], job_dict['job_num'], job_dict['job_percent'], job_dict['job_day'], job_dict['last_login'],
                job_dict['job_feedback'],
-               job_dict['company_leader'], job_dict['company_url'], job_dict['company_word'], company_id)
-    sql_in = '''insert into {} (company_name,company_verify,company_type,company_process,company_product,
+               job_dict['company_leader'], job_dict['company_url'], job_dict['company_word'],
+               job_dict['company_short_name'], db.escape_string(job_dict['company_desc']), job_dict['company_tag'],job_dict['logo'],
+               company_id)
+    sql_in = '''insert into companycrawl (company_name,company_verify,company_type,company_process,company_product,
     company_city,company_inurl, company_size,job_num, job_percent,
-    job_day,last_login,job_feedback,company_leader,company_url,company_word,company_id)
-    values ('{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}')
-    '''.format(source, job_dict['company_name'], job_dict['company_verify'], job_dict['company_type'], job_dict['company_process'],
+    job_day,last_login,job_feedback,company_leader,company_url,company_word,company_short_name,company_desc,tag,company_id, logo)
+    values ('{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}','{}')
+    '''.format(job_dict['company_name'], job_dict['company_verify'], job_dict['company_type'], job_dict['company_process'],
                job_dict['company_product'], job_dict['company_city'], url,
                job_dict['company_size'], job_dict['job_num'], job_dict['job_percent'], job_dict['job_day'], job_dict['last_login'],
                job_dict['job_feedback'],
-               job_dict['company_leader'], job_dict['company_url'], job_dict['company_word'], company_id)
+               job_dict['company_leader'], job_dict['company_url'], job_dict['company_word'],
+               job_dict['company_short_name'], job_dict['company_desc'], job_dict['company_tag'],
+               company_id, job_dict['logo'])
     try:
         cursor.execute(sql_up)
         data = cursor.rowcount
         print data, '-----upup----------'
-        if data == 0:
-            cursor.execute(sql_in)
-            data2 = cursor.rowcount
-            print data2, '---------ininin-------'
+        # if data == 0:
+        #     cursor.execute(sql_in)
+        #     data2 = cursor.rowcount
+        #     print data2, '---------ininin-------'
         db.commit()
     except Exception, e:
         print Exception, str(e), 999999999
@@ -194,8 +202,11 @@ def company_parse(html):
     company_type, company_process, company_size, company_city, company_product, job_num = '', '', '', '', '', ''
     company_name, company_url, company_word = '', '', ''
     company_main = soup.find('a', {'class': 'hovertips'})
+    company_short_name = ''
     try:
         company_name = company_main.get('title').strip()
+        company_short_name = company_main.get_text().strip()
+        print company_short_name
     except:
         pass
     try:
@@ -227,6 +238,25 @@ def company_parse(html):
         company_product += i2.a.text.strip() + ','
     soup2 = soup.find('div', {'class': 'company_data'}).find_all('li')
     job_num, job_percent, job_day, job_feedback, last_login = '', '', '', '', ''
+    logo = ''
+    try:
+        logo_url = soup.find('img', {'alt': u'公司Logo'}).get('src')
+        print logo_url
+        r_img = common.get_request(logo_url)
+        logo = r_img.content.encode('base64').replace('\n', '')
+    except:
+        pass
+    company_tag = soup.find_all('li', {'class': 'con_ul_li'})
+    tag_str = ''
+    try:
+        tag_str = ','.join([i.get_text().strip() for i in company_tag])
+        print tag_str
+    except:
+        pass
+    try:
+        company_desc = soup.find('div', {'class': 'company_intro_text'}).span.get_text().strip()
+    except:
+        company_desc = ''
     try:
         job_num = soup2[0].strong.text.strip()
     except:
@@ -258,7 +288,8 @@ def company_parse(html):
                     'company_city': company_city, 'company_product': company_product, 'company_verify': company_verify,
                     'job_num': job_num, 'job_percent': job_percent, 'job_day': job_day, 'job_feedback': job_feedback,
                     'last_login': last_login, 'company_leader': company_leader, 'company_name': company_name,
-                    'company_url': company_url, 'company_word': company_word}
+                    'company_url': company_url, 'company_word': company_word, 'company_tag': tag_str,
+                    'company_short_name': company_short_name, 'company_desc': company_desc, 'logo': logo}
     # print len(company_dict)
     return company_dict
 
@@ -267,7 +298,8 @@ def get_company(company_id):
     cwd = os.path.dirname(cwd_abs)
     # for i in xrange(1, 120000):
     print company_id
-    if not sql_lg('lagou', company_id):
+    # if not sql_lg('lagou', company_id):
+    if True:
         url = 'http://www.lagou.com/gongsi/{}.html'.format(company_id)
         print url
         r = common.get_request(url, headers=header)
@@ -275,25 +307,36 @@ def get_company(company_id):
         if r.status_code == 200:
             print url, '------------------' * 5
             #store_path = os.path.join(cwd,keyword,fname)
-            gs_fp = os.path.join(cwd, 'gongsi', 'lagou')
-            if not os.path.exists(gs_fp):
-                os.makedirs(gs_fp)
-            # fname = str(company_id) + '.html'
-            job_id = str(company_id)
-            job_id = job_id.rjust(8, '0')
-            store_path = os.path.join(gs_fp,job_id[0:3], job_id[3:6], job_id +'.html')
-            father_dir=os.path.dirname(store_path)
-            if not os.path.exists(father_dir):
-                os.makedirs(father_dir)
-            with open(store_path, 'w+') as f:
-                f.write(r.text)
+            # gs_fp = os.path.join(cwd, 'gongsi', 'lagou')
+            # if not os.path.exists(gs_fp):
+            #     os.makedirs(gs_fp)
+            # # fname = str(company_id) + '.html'
+            # job_id = str(company_id)
+            # job_id = job_id.rjust(8, '0')
+            # store_path = os.path.join(gs_fp,job_id[0:3], job_id[3:6], job_id +'.html')
+            # father_dir=os.path.dirname(store_path)
+            # if not os.path.exists(father_dir):
+            #     os.makedirs(father_dir)
+            # with open(store_path, 'w+') as f:
+            #     f.write(r.text)
             company_dict = company_parse(r.text)
             sql_lg_main('lagou', job_dict=company_dict, url=url, company_id=company_id)
             # common.rand_sleep(1)
 
+def all_id():
+    db = MySQLdb.connect(**common.sql_config)
+    cursor = db.cursor()
+    sql = """ select company_id from companycrawl """
+    cursor.execute(sql)
+    data_id = cursor.fetchall()
+    return data_id
 
 if __name__ == '__main__':
-    for i in xrange(23000, 40000):
+    # for i in xrange(23000, 40000):
+    data_id = all_id()
+    for ii in data_id:
+        i = ii[0]
+        print 'id now ', i
         get_company(i)
         url = 'http://www.lagou.com/gongsi/{}.html'.format(i)
         # lgtransfer.run_work(url)

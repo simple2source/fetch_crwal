@@ -220,7 +220,8 @@ def get_restult(moudle_name='',database_path=''):
         return [total_num,last_day_num,today_num,lasthour_num,lastfivemin_num]
     except Exception,e:
         return []
-    
+
+
 def result_print(moudle_list=[],dbfile=''):
     '''功能描述：将数据库查询结果进行打印输出'''
     try:
@@ -265,6 +266,7 @@ def result_print(moudle_list=[],dbfile=''):
     except Exception,e:
         return False
 
+
 def autologin_result(module='', dbfile=''):
     try:
         db = sqlite3.connect(dbfile)
@@ -276,13 +278,13 @@ def autologin_result(module='', dbfile=''):
         user_list = []
         for i in data:
             user_list.append(i[0])
-        x = PrettyTable(["用户名","登陆次数","重试总数"])
-        x.align["用户名"] = "l"
+        x = PrettyTable([u"用户名",u"登录次数",u"重试总数"])
+        x.align[u"用户名"] = "l"
         for i in user_list:
             cur.execute('select * from {} where add_time > "{}" and username="{}" '.format(module, today_str, i.encode('utf-8')))
             data1 = cur.fetchall()
             day_times = len(data1)   # 一天内尝试的次数
-            cur.execute('select sum(times) from {} where add_time > "{}" and username="{}"'.format(module, dbfile, i.encode('utf-8')))
+            cur.execute('select sum(times) from {} where add_time > "{}" and username="{}"'.format(module, today_str, i.encode('utf-8')))
             data = cur.fetchall()
             try:
                 day_try_count = data[0][0]  #　一天内所有的重试次数，更尝试次数可以比较
@@ -290,12 +292,16 @@ def autologin_result(module='', dbfile=''):
                 day_try_count = 0
             x.add_row([i.encode('utf-8'), day_times, day_try_count])
         db.close()
+        x_str = x.get_html_string(sortby=u'登录次数', reversesort=True).encode('utf-8')
+        rep_list = ['<td>' + str(x) + '</td>' for x in xrange(5, 50)]
+        for i in rep_list:
+            x_str = x_str.replace(i, i.replace('<td>', '<td style="color:red; text-align:right">'))
         #print x.get_html_string().encode('utf-8')
-        return x.get_html_string().encode('utf-8')
+        #return x.get_html_string().encode('utf-8')
+        return x_str
     except Exception, e:
         print Exception, e
         return None
-
 
 
 def result_email(moudle_list=[],dbfile=''):
@@ -417,8 +423,48 @@ def result_email(moudle_list=[],dbfile=''):
     except Exception,e:
         print Exception, e
         return False
-    
-if __name__=='__main__':
+
+
+def show_process_count(task_name):
+    # 查询每个进程对应的单位时间内的抓取量
+    try:
+        conn = sqlite3.connect('/data/fetch/database/process_fetch.db')
+        result_dict = {'task_name': '', 'yesterday': {'ok': 0, 'remove': 0},
+                       'today': {'ok': 0, 'remove': 0}, 'hour': {'ok': 0, 'remove': 0},
+                       'minute': {'ok': 0, 'remove': 0}}
+        cur = conn.cursor()
+        yesterday = (datetime.date.today()-datetime.timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')
+        today = datetime.date.today().strftime('%Y-%m-%d %H:%M:%S')
+        one_hour_before = (datetime.datetime.now()-datetime.timedelta(seconds=3600)).strftime('%Y-%m-%d %H:%M:%S')
+        five_min_before = (datetime.datetime.now()-datetime.timedelta(seconds=300)).strftime('%Y-%m-%d %H:%M:%S')
+        yesterday_sql = "SELECT sum(ok),sum(remove) from process_fetch_count " \
+                        "WHERE at_time > '{}' and at_time < '{}' and task_name='{}'".format(yesterday, today, task_name)
+        today_sql = "SELECT sum(ok),sum(remove) from process_fetch_count " \
+                    "WHERE at_time > '{}'".format(today)
+        one_hour_sql = "SELECT sum(ok),sum(remove) from process_fetch_count " \
+                       "WHERE at_time > '{}'".format(one_hour_before)
+        five_min_sql = "SELECT sum(ok),sum(remove) from process_fetch_count " \
+                       "WHERE at_time > '{}'".format(five_min_before)
+        cur.execute(yesterday_sql)
+        result_dict['yesterday']['ok'] = cur.fetchall()[0][0]
+        result_dict['yesterday']['remove'] = cur.fetchall()[0][-1]
+        cur.execute(today_sql)
+        result_dict['today']['ok'] = cur.fetchall()[0][0]
+        result_dict['today']['remove'] = cur.fetchall()[0][-1]
+        cur.execute(one_hour_sql)
+        result_dict['hour']['ok'] = cur.fetchall()[0][0]
+        result_dict['hour']['remove'] = cur.fetchall()[0][-1]
+        cur.execute(five_min_sql)
+        result_dict['minute']['ok'] = cur.fetchall()[0][0]
+        result_dict['minute']['remove'] = cur.fetchall()[0][-1]
+        result_dict['task_name'] = task_name
+        print result_dict
+        return result_dict
+    except Exception, error:
+        print error
+
+
+if __name__ == '__main__':
     '''将之前viewstat 的功能移到这里，不需要viewstat'''
     print 'test...'
     #result_print(['cjol','51job'],database_path)

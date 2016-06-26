@@ -5,6 +5,7 @@ import json
 import re
 import sys
 import datetime
+import os
 
 expect_job = u'\u6c42\u804c\u610f\u5411'
 skill = u'\u6280\u80fd\u4e13\u957f'
@@ -33,9 +34,15 @@ def string_format(string):
     format_string = format_string.replace('CM', '')
     return format_string
 
+def br2n(soup):
+    """替换soup格式里面的 <br> 的标签, 然后又转为 beautifulsoup 对象"""
+    s = re.sub('<br\s*?>', '\n', unicode(soup))
+    s2 = BeautifulSoup(s, 'html.parser')
+    return s2
+
 def analytics_m(fname, tp=0):
     html = resume_fname(fname, tp)
-    soup = BeautifulSoup(html, "html5lib")
+    soup = BeautifulSoup(html, "html.parser")
     common_box = soup.find_all('table', {'width': '100%', 'border': '0', 'cellpadding': '0', 'class': 'common_box'})
     base_info = {}
     expected = {}
@@ -151,7 +158,8 @@ def analytics_m(fname, tp=0):
                                 #print work_info.index(i)
                                 work_experience_dict[info_key_list[work_info.index(i)]] = string_format(i.get_text())
                             try:
-                                work_describe = work_t.find('td', {'class': 'work_experience_describe'}).get_text()
+                                work_describe = work_t.find('td', {'class': 'work_experience_describe'})
+                                work_describe = br2n(work_describe).get_text()
                             except:
                                 work_describe = ''
                             work_experience_dict['job_describe'] = work_describe
@@ -184,7 +192,8 @@ def analytics_m(fname, tp=0):
                     if len(td_num) ==3:
                         edu_dict['major'] = td_num[1].get_text()
                     try:
-                        edu_describe = edu_t.find('td', {'class': 'work_experience_describe'}).get_text()
+                        edu_describe = edu_t.find('td', {'class': 'work_experience_describe'})
+                        edu_describe = br2n(edu_describe).get_text()
                     except:
                         edu_describe = ''
                     edu_dict['edu_describe'] = edu_describe
@@ -195,7 +204,7 @@ def analytics_m(fname, tp=0):
             #print common_con
             skill_total = common_con.find('table', {'width': '100%', 'border': '0', 'cellspacing': '0'})
             try:
-                skill_describe_info = skill_total.get_text()
+                skill_describe_info = br2n(skill_total).get_text()
                 skill_describe_info = string_format(skill_describe_info)
             except:
                 skill_describe_info = ''
@@ -232,9 +241,11 @@ def json_output(fname, tp=0):
     #base_info['addition'] = addition_list
     base_info['attachment'] = attachment_list
     base_info['graduate_time'] = 0
-    if education_list[0]['education_time']:
+    try:
         education_time =  education_list[0]['education_time']
         base_info['graduate_time'] = education_time[(education_time.find('--')+2):][:4]
+    except:
+        pass
     #跟 原 json 兼容
     language_skills = []
     english_skill = base_info.pop('english_skill')

@@ -5,9 +5,10 @@
 import libzlpublish
 import lib51publish
 import libcjolpublish
-import selectuser
+import libaccount
 import sys, json, random, datetime
-import logging
+import logging, logging.config
+import os, common
 reload(sys)
 sys.setdefaultencoding('utf8')
 
@@ -30,7 +31,7 @@ source_json = {
         # 'department': '',  所属公司部门，意义不大
         # 'sex': '男',  # 性别  51job 没有 只有 cjol 有,  智联把区分性别当做歧视
         'welfare': '五险一金 222 111 高温补贴',  # 福利 以空白做分隔符
-        'keyword': '高薪 养廉',  # 职位关键词，方便搜索
+        'keyword': '前景 高薪',  # 职位关键词，方便搜索
         'email': 'a@a.com',  # 接受系统自动转发的简历
         'job_describe': '大家好，大家好，大家好。',  # 这是职位描述，用户自行添加
         }
@@ -624,48 +625,61 @@ class mainfetch(object):
 
         # 选取合适的 cookie 文件
         if position == 'gz':
-            ppp = '广州'
+            self.ppp = '广州'
         elif position == 'sz':
-            ppp = '深圳'
+            self.ppp = '深圳'
         elif position == 'bj':
-            ppp = '北京'
+            self.ppp = '北京'
         elif position == 'hz':
-            ppp = '杭州'
+            self.ppp = '杭州'
         elif position == 'sh':
-            ppp = '上海'
+            self.ppp = '上海'
         else:
             ppp = '%'
         self.detail = self.json_dict['job_detail']
         self.source = self.json_dict['source']
-        fpath_choice = selectuser.Selcet_user(self.source, location=ppp, option='pub')
-        fpath_list = fpath_choice.select_cookie()
-        if len(fpath_list) > 0:
-            cookie_fpath = random.choice(fpath_list)
-            print '选择的cookie文件为 {}'.format(cookie_fpath)
-        else:
-            logging.error('no avail login cookie file for cjol')
-            print '没有已经登陆的 {} cookie文件'.format(self.source)
-            quit()
-        # cookie_fpath = '/home/vagrant/share/fetch/src/fetch/cookie/zl.txt'
-        self.cookie_fpath = cookie_fpath
+        self.module_name = 'publish'
+        self.username = ''
+        self.ck_str = None
+        # init other log
+        with open(common.json_config_path) as f:
+            ff = f.read()
+        logger = logging.getLogger(__name__)
+        log_dict = json.loads(ff)
+        log_dict['loggers'][""]['handlers'] = ["file", "stream", "pub", "error"]
+        logging.config.dictConfig(log_dict)
+        logging.debug('pub hahahahha')
+        self.account = libaccount.Manage(source=self.source, option='pub', location=self.ppp)
+
+        logging.info('trying to {} publish, username is {}'.format(self.module_name, self.username))
 
     def run_work(self):
+        username1 = self.account.uni_user()
+        if username1:
+            self.username = username1
+            logging.info('{} buy select username is {}'.format(self.module_name, self.username))
+            self.ck_str = self.account.redis_ck_get(self.username)
+        else:
+            logging.error('no avail login cookie for {} {} publish'.format(self.source, self.ppp))
+            return json.dumps({'error': 'no avail login cookie for {} {} publish'.format(self.source, self.ppp)})
+            #common.sendEmail('', 'Warning, no account for {}', 'no avail login cookie for {}'
+            #                .format(self.module_name, self.module_name, 0))
         if self.source == 'zhilian':
             p = Zhilian(self.json_dict)
             payload = p.j_payload()
             # print payload
-            a = libzlpublish.zhilianpub(self.cookie_fpath, payload)
-            a.run_work()
+            a = libzlpublish.zhilianpub(self.ck_str, payload)
+            return a.run_work()
         elif self.source == '51job':
             p = Job51(self.json_dict)
             payload = p.j_payload()
-            a = lib51publish.job51pub(self.cookie_fpath, payload)
-            a.run_work()
+            a = lib51publish.job51pub(self.ck_str, payload)
+            return a.run_work()
         elif self.source == 'cjol':
             p = Cjol(self.json_dict)
             payload = p.j_payload()
-            a = libcjolpublish.Cjolpub(self.cookie_fpath, payload)
-            a.run_work()
+            a = libcjolpublish.Cjolpub(self.ck_str, payload)
+            return a.run_work()
 
 
 if __name__ == '__main__':

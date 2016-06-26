@@ -58,7 +58,7 @@ class zhilianfetch(BaseFetch):
         self.start_num=0
         self.end_num=0
         self.current_num=self.start_num
-        self.maxsleeptime = 6
+        self.maxsleeptime = 18
         self.circle_count = 0
         # self.skill_list = ['php','c%2B%2B','javascript','html5','%E5%AE%89%E5%8D%93','android','ios','java','%E8%AE%BE%E8%AE%A1','%E4%BA%A7%E5%93%81','%E8%81%8C%E8%83%BD','%E5%B8%82%E5%9C%BA']
         self.area_list=['530','538','763','765']
@@ -72,10 +72,10 @@ class zhilianfetch(BaseFetch):
         self.rp = Rdsreport()
         # 下面几个参数是用来选择账号的
         self.time_period = 400
-        self.time_num = 150  # 这个跟上面的可以限制选择账号的时候的抓取频率
+        self.time_num = 35  # 这个跟上面的可以限制选择账号的时候的抓取频率
         self.hour_num = 0
-        self.day_num = 0
-        self.switch_num = 30
+        self.day_num = 800
+        self.switch_num = 8
         """
         :param time_period: 跟下面的额num 综合利用来限制频率的
         :param time_num:  同上， 可以设置短时间 抓取的个数，限制频率，1分钟 5 个那样子
@@ -93,7 +93,7 @@ class zhilianfetch(BaseFetch):
         logging.config.dictConfig(log_dict)
         logging.debug('hahahahha')
 
-        self.address = ''
+        self.address = '10.4.16.39:8888'
 
     def load_task(self):
         '''功能描述：载入任务初始化相关参数'''
@@ -300,6 +300,7 @@ class zhilianfetch(BaseFetch):
                 count +=1
                 try:
                     chk_url = r'http://rdsearch.zhaopin.com/Home/'
+                    self.rand_ua()
                     html = self.url_get(chk_url)
                     if self.isResume_chk(html) > 0:
                         flag = True
@@ -369,17 +370,13 @@ class zhilianfetch(BaseFetch):
                 'vinson5001104',
                 'h24',
                 'ffy65700282v',
-                'peter10001210',
-                'two10001210',
 
                 'gg10001210',
                 'hh10001210',
                 '9910001210',
                 '1010001210',
-                '350bj1217',
-                '350bj1216',
                 'Ju2yuan',
-                'jake5041225',
+                '350bj1217',
                 'shengfeng1',
                 'shchj']
 
@@ -404,40 +401,25 @@ class zhilianfetch(BaseFetch):
         try:
             flag = False
             redis_key_list = self.account.uni_user(time_period=self.time_period, num=self.time_num, hour_num=self.hour_num, day_num=self.day_num)
-            print redis_key_list, 8888888888
+            logging.info('selected redis_key is {}'.format(redis_key_list))
             if len(redis_key_list) > 0:
                 while len(redis_key_list) > 0 and not flag:
                     redis_key = random.choice(redis_key_list)
                     redis_key_list.remove(redis_key)
                     self.username = redis_key.split('_')[1]
-                    print(self.username), 99999999999
+                    # print(self.username), 99999999999
+                    logging.info('zhilian get username is {}'.format(self.username))
+                    logging.info('selected avail user name is {}'.format(self.username))
                     self.ck_str = self.account.redis_ck_get(self.username)
-                    print self.ck_str
+                    # print self.ck_str
                     self.headers['Cookie'] = self.ck_str
-                    l_login = liblogin.LoginZL(cn=self.ctmname, un=self.username, pw=self.password)
-                    if l_login.check_login():
-                        flag = True
-                        logging.info('switching {} username {} success. '.format(self.module_name, self.username))
-                    else:
-                        sql_res = self.account.sql_password(self.username)
-                        print sql_res
-                        self.account.redis_ck_ex(self.username)  # 更新该用户名的cookie失效时间
-                        self.password = sql_res[1]
-                        self.ctmname = sql_res[0]
-
-                        self.ck_str = l_login.main()
-                        self.headers['Cookie'] = self.ck_str
-                        if self.login_status_chk():
-                            self.account.redis_ck_set(self.username, self.ck_str)
-                            logging.info('zhilian user {} auto login success'.format(self.username))
-                            flag = True
-                return flag
+                    return True
             else:
                 logging.critical('no account left for {}'.format(self.module_name))
                 # 这里需要发邮件警告。
                 return False
 
-        except Exception, e:
+        except Exception as e:
             logging.critical('error msg is {}'.format(str(e)), exc_info=True)
             return False
 
@@ -481,14 +463,12 @@ class zhilianfetch(BaseFetch):
         '''功能描述：执行任务主工作入口函数'''
         try:
             switch_num = 0
+            login_mail = 0
             while True:
                 # self.load_cookie(self.cookie_fpath)
                 # self.parse_cookie(self.cookie_fpath)
-                self.get_cookie()
                 self.load_search_task()
-                os.environ['http_proxy']='http://183.131.144.102:8081'
-                subprocess.Popen('export',close_fds=True, shell=True,env=os.environ)
-                print self.search_list,self.username
+                print self.search_list
                 # if len(self.area_list)==5:                  # 目前依据地区任务列表长度来进行抓取,后续直接可以将地区写死,将技能\行业\岗位作为本地task加载进来
                 #     self.years = self.skill_list
                 # if self.test_proxy():
@@ -511,44 +491,58 @@ class zhilianfetch(BaseFetch):
                                 # url = url.replace('3%2C3',i[1]).replace('16',str(n)).replace('763',i[0])
                                 # url = r'http://rdsearch.zhaopin.com/Home/ResultForCustom?SF_1_1_4=3%2C3&SF_1_1_18=763&SF_1_1_27=0&orderBy=DATE_MODIFIED%2C1&pageSize=60&exclude=1&pageIndex=16'
                                 # url = r'http://rdsearch.zhaopin.com/Home/ResultForCustom?SF_1_1_7=2%2C9&SF_1_1_4=3%2C3&SF_1_1_18=763&SF_1_1_27=0&orderBy=DATE_MODIFIED%2C1&exclude=1&pageIndex=16'
-                                url = r'http://rdsearch.zhaopin.com/Home/ResultForCustom?SF_1_1_7=2%2C9&SF_1_1_4=3%2C3&SF_1_1_18=763&SF_1_1_27=0&orderBy=DATE_MODIFIED%2C1&pageSize=60&exclude=1&pageIndex=133'
+                                url = r'http://rdsearch.zhaopin.com/Home/ResultForCustom?SF_1_1_5=7%2C16&' \
+                                      r'SF_1_1_7=2%2C9&SF_1_1_4=3%2C3&SF_1_1_18=763&SF_1_1_27=0&orderBy=DATE_MODIFIED%2C1&pageSize=60&exclude=1&pageIndex=133'
                                 url = url.replace('SF_1_1_4=3%2C3&', l).replace('133', str(n)).replace('763', m)
                             elif len(self.search_list) == 12:
                                 # url = r'http://rdsearch.zhaopin.com/Home/ResultForCustom?SF_1_1_1=php&SF_1_1_7=2%2C9&SF_1_1_18=530&SF_1_1_27=0&orderBy=DATE_MODIFIED%2C1&exclude=1&pageIndex=16'
                                 # url = r'http://rdsearch.zhaopin.com/Home/ResultForCustom?SF_1_1_1=php&SF_1_1_18=530&SF_1_1_27=0&orderBy=DATE_MODIFIED%2C1&pageSize=60&exclude=1&pageIndex=16'
-                                url = r'http://rdsearch.zhaopin.com/Home/ResultForCustom?SF_1_1_1=php&SF_1_1_7=2%2C9&SF_1_1_18=530&SF_1_1_27=0&orderBy=DATE_MODIFIED%2C1&pageSize=60&exclude=1&pageIndex=1333'
+                                url = r'http://rdsearch.zhaopin.com/Home/ResultForCustom?SF_1_1_4=1%2C99&SF_1_1_5=7%2C16&' \
+                                      r'SF_1_1_1=php&SF_1_1_7=2%2C9&SF_1_1_18=530&SF_1_1_27=0&orderBy=DATE_MODIFIED%2C1&pageSize=60&exclude=1&pageIndex=1333'
                                 url = url.replace('1333', str(n)).replace('530', m).replace('php', l)
                             elif len(self.search_list) == 10:
                                 # url = r'http://rdsearch.zhaopin.com/Home/ResultForCustom?SF_1_1_7=2%2C9&SF_1_1_18=538&SF_1_1_8=20%2C20&SF_1_1_27=0&orderBy=DATE_MODIFIED%2C1&exclude=1&pageIndex=16'
                                 # url = r'http://rdsearch.zhaopin.com/Home/ResultForCustom?SF_1_1_18=538&SF_1_1_8=20%2C20&SF_1_1_27=0&orderBy=DATE_MODIFIED%2C1&pageSize=60&exclude=1&pageIndex=16'
-                                url = r'http://rdsearch.zhaopin.com/Home/ResultForCustom?SF_1_1_7=2%2C9&SF_1_1_18=538&SF_1_1_8=20%2C20&SF_1_1_27=0&orderBy=DATE_MODIFIED%2C1&pageSize=60&exclude=1&pageIndex=133'
-                                url = url.replace('133',str(n)).replace('538',m).replace('20%2C20&',l)
+                                url = r'http://rdsearch.zhaopin.com/Home/ResultForCustom?SF_1_1_4=1%2C99&SF_1_1_5=7%2C16&' \
+                                      r'SF_1_1_7=2%2C9&SF_1_1_18=538&SF_1_1_8=20%2C20&SF_1_1_27=0&orderBy=DATE_MODIFIED%2C1&pageSize=60&exclude=1&pageIndex=133'
+                                url = url.replace('133', str(n)).replace('538', m).replace('20%2C20&', l)
                             elif len(self.search_list) == 7:
                                 # url = r'http://rdsearch.zhaopin.com/Home/ResultForCustom?SF_1_1_3=210500&SF_1_1_7=2%2C9&SF_1_1_18=538&SF_1_1_27=0&orderBy=DATE_MODIFIED%2C1&exclude=1&pageIndex=17'
                                 # url = r'http://rdsearch.zhaopin.com/Home/ResultForCustom?SF_1_1_18=538&SF_1_1_3=210500&SF_1_1_27=0&orderBy=DATE_MODIFIED%2C1&pageSize=60&exclude=1&pageIndex=17'
-                                url = r'http://rdsearch.zhaopin.com/Home/ResultForCustom?SF_1_1_3=210500&SF_1_1_7=2%2C9&SF_1_1_18=538&SF_1_1_27=0&orderBy=DATE_MODIFIED%2C1&pageSize=60&exclude=1&pageIndex=177'
+                                url = r'http://rdsearch.zhaopin.com/Home/ResultForCustom?SF_1_1_4=1%2C99&SF_1_1_5=7%2C16&' \
+                                      r'SF_1_1_3=210500&SF_1_1_7=2%2C9&SF_1_1_18=538&SF_1_1_27=0&orderBy=DATE_MODIFIED%2C1&pageSize=60&exclude=1&pageIndex=177'
                                 url = url.replace('177', str(n)).replace('538', m).replace('210500', l)
                             elif len(self.search_list) == 6:
-                                url = r'http://rdsearch.zhaopin.com/Home/ResultForCustom?SF_1_1_7=2%2C9&SF_1_1_4=3%2C3&SF_1_1_18=763&SF_1_1_27=0&orderBy=DATE_MODIFIED%2C1&pageSize=60&exclude=1&pageIndex=177'
+                                url = r'http://rdsearch.zhaopin.com/Home/ResultForCustom?SF_1_1_5=7%2C16&' \
+                                      r'SF_1_1_7=2%2C9&SF_1_1_4=3%2C3&SF_1_1_18=763&SF_1_1_27=0&orderBy=DATE_MODIFIED%2C1&pageSize=60&exclude=1&pageIndex=177'
                                 url = url.replace('SF_1_1_4=3%2C3&', l).replace('177', str(n)).replace('763', m)
                             self.get_cookie1()   # 访问搜索页面的时候切换到那4个账号
-                            html = self.url_get(url)
-#                             html = self.proxy_url_get(url, self.address)
-#                             while not html:
-#                                 print 'first ---- proxy'
-#                                 if self.test_proxy():
-#                                     html = self.proxy_url_get(url, self.address)
+                            # 进程中使用代理ip
+                            # os.environ['http_proxy'] = 'http://121.41.11.179:16816'
+                            # subprocess.Popen('export',close_fds=True, shell=True,env=os.environ)
                             # html = self.url_get(url)
-                            # html = self.proxy_url_get(url, self.address)                 #代理暂时不启用
-                            # while not html:
-                            #     print 'first ---- proxy'
-                            #     if self.test_proxy():
-                            #         html = self.proxy_url_get(url, self.address)
+                            print url
+                            self.rand_ua()
+                            html = self.proxy_url_get(url, self.address)
+                            while not html:
+                                print 'first  proxy ip error ------'
+                                logging.debug('proxy ip get error')
+                                time.sleep(300)
+                                html = self.proxy_url_get(url, self.address)
+
                             if html.find('name="login"') > 0:
-                                txt_title = self.username + '' + 'cookie is unusable'
-                                txt_msg = self.module_name + self.taskfpath + '<br>' + 'is fail'
-                                self.send_mails(txt_title, txt_msg, 0)
-                                time.sleep(5000*2)
+                                login_mail += 1
+                                if login_mail == 1:
+                                    txt_title = self.username + ' ' + 'cookie is unusable'
+                                    txt_msg = self.module_name + self.taskfpath + '<br>' + 'is fail'
+                                    # self.send_mails(txt_title, txt_msg, 0)
+                                self.get_cookie()
+                                with open('/data/fetch/db/zhilian_error.html') as f_error:
+                                    f_error.write(html)
+                                print 'name=login............'
+                                time.sleep(100*2)
+                                self.rand_ua()
+                                html = self.proxy_url_get(url, self.address)
                             soup = BeautifulSoup(html, 'html.parser')
                             uplink = soup.select('.first-weight a')
                             inbox = soup.select("td")
@@ -576,38 +570,35 @@ class zhilianfetch(BaseFetch):
                                 page_update_time == datetime.datetime.now().strftime('%Y-%m-%d').replace('20','')
                             if uplink:
                                 for i in uplink:
-                                    if switch_num > self.switch_num:
-                                        logging.info('{} time to switch cookie'.format(self.module_name))
-                                        self.get_cookie()
-                                        switch_num = 0
                                     sum_count += 1
-                                    urllink = i['href']
+                                    post_data = 'searchKeyword=' + l
+                                    url_part = 'http://rd.zhaopin.com/resumepreview/resume/viewone/2/'
+                                    urllink = url_part + i['href'].split('/')[-1] + '&t=' + i['onclick'].split(',')[1].strip("'") + '&k=' + \
+                                                    i['onclick'].split(',')[2].split(';')[0].strip(')').strip("'")
                                     x = i['tag'].replace('_1', '')
                                     prefixid = 'z_' + str(x)
                                     addtime = '20' + page_update_time + ' 00:00:00'
                                     r = self.rp
-                                    # if self.resume_exist_chk(x):
-                                    #     logging.info('resume %s already exist' % str(x))
                                     if r.rcheck(prefixid, addtime, 1):
-                                        #         flag = True
-                                        #     else:
-                                        #         flag = False
-                                        # else:
-                                        #     flag = True
-                                        #     r.rcheck(prefixid, addtime, 1)
-                                        # if flag:
                                         req_count = 0
                                         while req_count < 3:
+                                            switch_num += 1
+                                            if switch_num > self.switch_num:
+                                                logging.info('{} time to switch cookie user {}'.format(self.module_name, self.username))
+                                                self.get_cookie()
+                                                switch_num = 0
                                             req_count += 1
                                             try:
                                                 logging.info('begin to get resume %s from Internet' % str(x))
-                                                urlhtml = self.url_get(urllink)
-                                                # urlhtml = self.proxy_url_get(urllink, self.address)
-                                                # print 'use current proxy ip',self.address
+                                                # urlhtml = self.url_get(urllink)
+                                                self.rand_ua()
+                                                urlhtml = self.proxy_url_post(urllink, self.address, post_data)
+                                                print 'use current proxy ip', self.address
                                                 # while not urlhtml:
-                                                #     print 'wrong????',urlhtml
+                                                #     print 'wrong????', urlhtml
                                                 #     if self.test_proxy():
                                                 #         print 'use another proxy ip',self.address
+                                                #         self.rand_ua()
                                                 #         urlhtml = self.proxy_url_get(urllink, self.address)
                                                 isResume = self.isResume_chk(urlhtml)
                                                 if isResume == -2:
@@ -621,7 +612,6 @@ class zhilianfetch(BaseFetch):
                                                     logging.info('waring! More than the largest number at %s ' % str(x))
                                                     time.sleep(6000*2)
                                                 elif isResume == 1:
-                                                    switch_num += 1
                                                     if self.save_resume(str(x), urlhtml):                # 默认id长度为23
                                                         seg_success_count += 1
                                                         add_total_num(os.path.split(self.taskfpath)[-1])
@@ -682,12 +672,12 @@ class zhilianfetch(BaseFetch):
                                                     time.sleep(20*60)
                                                     break
                                                 elif isResume == 6:
-                                                    txt_title = self.module_name + '请求量过大导致系统无法处理您的请求，您需要输入验证码才能继续后续的操作'
-                                                    txt_msg = self.module_name + '<br>cookie path'+ self.cookie_fpath+ '<br>'+'当前抓取id_number:'+ str(x) + '<br>' + urlhtml
+                                                    txt_title = self.module_name + '--' +'请求量过大导致系统无法处理您的请求，您需要输入验证码才能继续后续的操作'
+                                                    txt_msg = self.username + '<br>cookie path' + self.cookie_fpath+ '<br>'+'当前抓取id_number:'+ str(x) + '<br>' + urlhtml
                                                     self.send_mails(txt_title, txt_msg, 0)
                                                     logging.info('waring!requst too much,Please enter the verification code %s ' % str(x))
-                                                    req_count = 0
-                                                    time.sleep(10*100)
+                                                    self.get_cookie()
+                                                    time.sleep(10*5)
                                             except Exception,e:
                                                 logging.debug('get %s resume error and msg is %s' % (str(x),str(e)))
                                         self.rand_sleep()
@@ -708,7 +698,7 @@ class zhilianfetch(BaseFetch):
                                     logging.warning('error 4,%s swoop %s' % (self.username,str(e)))
 
                 self.fin_task()
-                time.sleep(2000*2)
+                time.sleep(4000*2)
         except Exception,e:
             print traceback.format_exc()
             logging.debug('error msg is %s' % str(e))

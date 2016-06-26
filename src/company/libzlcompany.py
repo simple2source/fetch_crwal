@@ -34,9 +34,11 @@ params = {
 
 # 四城市一起搜，结果太多，分开
 city_list = ['广州', '深圳', '北京', '上海']
-keyword_list = ['python', 'PHP', 'C++', 'JS', 'javascript', 'HTML5', '安卓', 'android',
-        'ios', 'java', '设计', '产品', '职能', '市场',  '测试', '运维', 'Erlang',
-        'cocos2dx', '.Net', '数据分析', 'u3d', 'python']
+# keyword_list = ['python', 'PHP', 'C++', 'JS', 'javascript', 'HTML5', '安卓', 'android',
+#         'ios', 'java', '设计', '产品', '职能', '市场',  '测试', '运维', 'Erlang',
+#         'cocos2dx', '.Net', '数据分析', 'u3d', 'python']
+keyword_list = ['']
+industry_list = ['210500', '160400', '160000', '160500', '160200', '300100', '160100', '160600']
 # r = get_request(url, headers,  params)
 # print r.url
 #
@@ -70,22 +72,24 @@ def get_url_list(html):
 def get_url_all(keyword='python', city='广州'):
     params['kw'] = keyword
     params['jl'] = city
-    r = get_request(url, headers, params)
-    url_first = get_url_list(r.text)
-    url_all = url_first
-    flag = 1
-    while flag:
-        url_next = find_next(r.text)
-        # print url_next, 22222222222222
-        if url_next:
-            url_next_list = get_url_list(r.text)
-            url_all.extend(url_next_list)
-            r = get_request(url_next)
-        else:
-            flag = 0
-    # print url_all, len(url_all), 111111111111
-    return url_all
-    #return url_all
+    for industry in industry_list:
+        params['in'] = industry
+        r = get_request(url, headers, params)
+        url_first = get_url_list(r.text)
+        url_all = url_first
+        flag = 1
+        while flag:
+            url_next = find_next(r.text)
+            # print url_next, 22222222222222
+            if url_next:
+                url_next_list = get_url_list(r.text)
+                url_all.extend(url_next_list)
+                r = get_request(url_next)
+            else:
+                flag = 0
+        # print url_all, len(url_all), 111111111111
+        return url_all
+        #return url_all
 
 def extract(html):
     soup = BeautifulSoup(html, 'html.parser')

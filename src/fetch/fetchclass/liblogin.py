@@ -10,14 +10,16 @@ import random, time, json, logging, os
 import logging.config
 import common
 import sqlite3
-# init other log
-with open(common.json_config_path) as f:
-    ff = f.read()
-logger = logging.getLogger(__name__)
-log_dict = json.loads(ff)
-log_dict['handlers']['file']['filename'] = os.path.join(common.log_dir, 'autologin.log')
-logging.config.dictConfig(log_dict)
-logging.debug('hahahahha')
+
+# 这个不用单独的log，避免被调用后 Log 文件错乱.
+# # init other log
+# with open(common.json_config_path) as f:
+#     ff = f.read()
+# logger = logging.getLogger(__name__)
+# log_dict = json.loads(ff)
+# log_dict['handlers']['file']['filename'] = os.path.join(common.log_dir, 'autologin.log')
+# logging.config.dictConfig(log_dict)
+# logging.debug('hahahahha')
 
 
 class Login51():
@@ -100,25 +102,30 @@ class Login51():
         # print cookie_string
         return cookie_string
 
-    def check_login(self, ck_str=''):
-        """check username if is online"""
+    def check_login(self, ck_str='', op=1):
+        """check username if is online，添加是否能搜索的选项 op，不知道为啥有些号点搜索会退出"""
         headers = {
             'Host': 'ehire.51job.com',
             'User-Agent': 'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:43.0) Gecko/20100101 Firefox/43.0',
             'Accept': "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             'Accept-Language': 'zh-CN,zh;q=0.8,en-US;q=0.5,en;q=0.3',
             'Accept-Encoding': 'gzip, deflate',
-            'Referer': 'http://ehire.51job.com/Candidate/SearchResume.aspx',
+            'Referer': 'http://ehire.51job.com/Navigate.aspx?ShowTips=11&PwdComplexity=N',
             'Connection': 'keep-alive',
             'Content-Type': 'application/x-www-form-urlencoded',
         }
-        chk_url = r'http://ehire.51job.com/Candidate/ResumeView.aspx?hidUserID=10010'
+        if op == 1:
+            chk_url = r'http://ehire.51job.com/Navigate.aspx'
+        else:
+            chk_url = r'http://ehire.51job.com/Candidate/SearchResumeIndexNew.aspx'
+        self.s.headers = headers
         self.s.headers['cookie'] = ck_str
-        r = self.s.get(chk_url, headers=headers)
-        if r.text.find(u'登录') < 0:
+        r = self.s.get(chk_url)
+        if r.text.find(u'id="Login_btnLoginCN"') < 0:
             return True
         else:
             return False
+
 
     def main(self, sleep=0):
         """sleep 为设定的睡眠时间，爬虫需要，购买应该不需要等待, 设定大于10 才睡眠"""
@@ -140,9 +147,9 @@ class Login51():
             db.close()
         except Exception, e:
             logging.error('sqlite3 create table error and error msg is {}'.format(str(e)), exc_info=True)
-        if sleep > 10:
-            min_sleep = random.randint(10, sleep)
-            time.sleep(min_sleep * 60)
+        if sleep > 4:
+            min_sleep = random.randint(1, sleep)
+            time.sleep(min_sleep * 10)
         while count <= 3:
             try:
                 cookie_string = self.login()
@@ -192,11 +199,12 @@ class LoginZL(object):
             'Content-Type': 'application/x-www-form-urlencoded',
         }
         proxies = {
-          'http': 'http://183.131.144.102:8081',
-          'https': 'http://183.131.144.102:8081',
+          'http': 'http://10.4.16.39:8888',
+          'https': 'http://10.4.16.39:8888',
             }
-        chk_url = r'http://rd.zhaopin.com/resumepreview/resume/viewone/2/JM114403938R90250002000_1_1?searchresume=1'
+        chk_url = r'http://rdsearch.zhaopin.com/?from=breadcrumb'
         self.s.headers['cookie'] = ck_str
+        return True
         r = self.s.get(chk_url, headers=headers, proxies=proxies)
         if r.text.find(u'登录') < 0:
             return True

@@ -7,10 +7,11 @@ import sys
 reload(sys)
 sys.setdefaultencoding('utf8')
 
-keyword_list = ['python', 'PHP', 'C++', 'JS', 'javascript', 'HTML5', '安卓', 'android',
-        'ios', 'java', '设计', '产品', '职能', '市场',  '测试', '运维', 'Erlang',
-        'cocos2dx', '.Net', '数据分析', 'u3d', 'python']
+# keyword_list = ['python', 'PHP', 'C++', 'JS', 'javascript', 'HTML5', '安卓', 'android',
+#         'ios', 'java', '设计', '产品', '职能', '市场',  '测试', '运维', 'Erlang',
+#         'cocos2dx', '.Net', '数据分析', 'u3d', 'python']
 
+keyword_list = ['']
 
 params = {
     'KeywordType': 1,

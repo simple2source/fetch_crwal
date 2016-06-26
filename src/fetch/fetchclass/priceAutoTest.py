@@ -487,7 +487,6 @@ def sendMail(keyWordList):
     table_list[0] = table_list[0].replace(end[0], end[0] + "\n".join(sub_table_list))
   html_table = table_list[0].replace("不包含</td>","不包含</td></br><tr><td>&nbsp;</td></tr>")
   html_table = mark(html_table,length)
-  print html_table
   mail.send_mails(title='报表06: 搜索自动化测试',msg_txt=html_table,msgtype=0)
 
 if __name__ == '__main__':

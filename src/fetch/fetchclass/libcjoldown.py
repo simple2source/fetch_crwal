@@ -4,7 +4,7 @@
 from BaseFetch import BaseFetch
 import os,datetime,time,logging
 from common import *
-from dbctrl import *
+# from dbctrl import *
 from bs4 import BeautifulSoup
 import re
 from time import gmtime, strftime
@@ -19,12 +19,12 @@ from logging import debug
 #reload(sys)
 #sys.setdefaultencoding('utf-8')
 import logging.config
-
-
+import requests
+import buy2talent
 
 
 class mainfetch(BaseFetch):
-    def __init__(self, position = '', id_number=''):
+    def __init__(self, position = '', id_number='', adviser_user=''):
         BaseFetch.__init__(self)
 
         # 确定是否是调试模式
@@ -50,30 +50,39 @@ class mainfetch(BaseFetch):
             'Accept':'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
             'Accept-Language': 'zh-CN,zh;q=0.8,en-US;q=0.5,en;q=0.3',
         }
+        self.rp = Rdsreport()
         acc = libaccount.Manage(source='cjol', option='buy')
         # init other log
         with open(json_config_path) as f:
             ff = f.read()
         logger = logging.getLogger(__name__)
         log_dict = json.loads(ff)
-        log_dict['handlers']['file']['filename'] = os.path.join(log_dir, 'cjolbuy.log')
+        log_dict['loggers'][""]['handlers'] = ["file", "stream", "buy", "error"]
         logging.config.dictConfig(log_dict)
         logging.debug('hahahahha')
+        self.logger = common.log_init(__name__, 'cjolbuy2.log')
 
 
         username1 = acc.uni_user()
+        # username1 = 'qimingguanggao'
+        self.has_cookie = True
         if username1:
             self.username = username1
             logging.info('cjol buy select username is {}'.format(self.username))
+            self.logger.info('cjol buy select username is {}'.format(self.username))
             self.headers['Cookie'] = acc.redis_ck_get(self.username)
         else:
             logging.error('no avail login cookie for cjol')
-            # print '没有已经登陆的 cjol cookie文件'
-            quit()
+            self.logger.error('no avail login cookie for cjol')
+            self.send_mails('Warining, no account for cjoldown', 'no avail login cookie for cjoldown')
+            print '没有已经登陆的 cjol cookie文件'
+            self.has_cookie = False
+            # quit()  # 这里不退出，在runwork那里才 return something
         print 'id num is {}'.format(id_number)
         print 'position is {}'.format(position)
         logging.info('trying to buy id {}'.format(self.id_number))
-
+        self.logger.info('trying to buy id {}'.format(self.id_number))
+        self.adviser_user = adviser_user
         self.id_number=id_number
         self.position = position
         self.host=r'rms.cjol.com'        
@@ -124,67 +133,10 @@ class mainfetch(BaseFetch):
             return flag
         except Exception,e:
             logging.debug('error msg is %s'% str(e))
+            self.logger.debug('error msg is %s'% str(e))
             return -1
 
-        
-    def cookie_notice(self,notify_type=0):
-        '''功能描述：cookie信息提醒，失效/生效'''
-        try:
-            if notify_type == 0:
-                txt_title = self.module_name+' cookie power off'
-                txt_msg=self.module_name+ ' cookie 已经失效，最近一次修改时间:'+ time.strftime('%Y-%m-%d %H:%M:%S',time.localtime(self.cookie_modtime))
-                self.send_mails(txt_title,txt_msg,0)
-                logging.info('cookie power off and %s send notice_mail success' % self.module_name)
-            elif notify_type == 1:
-                txt_title = self.module_name+' cookie login success'
-                txt_msg=self.module_name+ ' cookie 登录成功，cookie最新修改时间:'+ time.strftime('%Y-%m-%d %H:%M:%S',time.localtime(self.cookie_modtime))
-                self.send_mails(txt_title,txt_msg,0)
-                logging.info('cookie login success and %s send notice_mail success' % self.module_name)
-            return True
-        except Exception,e:
-            logging.debug('error msg is %s' % str(e))
-            return False
-        
-    def login(self):
-        '''功能描述：判断登录状态处理登录过程，循环等待cookie更新直至登录cookie可用'''
-        try:
-            # self.load_cookie(self.cookie_fpath)
-            flag = False
-            if self.login_status_chk():
-                flag = True
-            else:
-                #exit(0)
-                self.logout_at = datetime.datetime.now()
-                flag= False
-                self.cookie_notice(0)
-                count = 0
-                while not flag:
-                    try:
-                        count += 1
-                        logging.info('the login action will be executed after %ds ...' % self.login_wait)
-                        time.sleep(self.login_wait)
-                        if os.path.getmtime(self.cookie_fpath) > self.cookie_modtime:
-                            self.load_cookie(self.cookie_fpath)
-                            logging.info('cookie file updated at %s' % time.strftime('%Y-%m-%d %H:%M:%S',time.localtime()))
-                            logging.info('try to login at the count %d ' % count)
-                            if self.login_status_chk():
-                                flag =True
-                                self.cookie_notice(1)
-                                logging.info('success login at the count %d ' % count)
-                        else:
-                            if count % 48 == 0:
-                                self.cookie_notice(0)
-                            read_modtime = time.strftime('%Y-%m-%d %H:%M:%S',time.localtime(os.path.getmtime(self.cookie_fpath)))
-                            record_modtime = time.strftime('%Y-%m-%d %H:%M:%S',time.localtime(self.cookie_modtime))
-                            logging.info('waite cookie update and modtime_read at %s ,modtime record at %s' % (read_modtime,record_modtime))
-                    except Exception,e:
-                        logging.debug('single login error and msg is %s' % str(e))
-                self.login_at=datetime.datetime.now()
-                self.logout_at=None
-            return flag
-        except Exception,e:
-            logging.debug('error msg is %s ' % str(e))
-            return False
+
         
     def login_status_chk(self):
         '''功能描述：检查当前登录状态是否有效'''
@@ -211,30 +163,19 @@ class mainfetch(BaseFetch):
 
     def run_work(self):
         '''功能描述,执行简历下载'''
-        ### TODO 原来的程序构造函数和这里分别有载入 cookie , 感觉是重复的? 不加这里好像又有问题
         # 选取合适的 cookie 文件
         try:
+            if not self.has_cookie:
+                # 没有可用  cookie  在这里直接退出
+                return json.dumps({'status': 'error', 'msg': 'no avail cookie for cjol',
+                                       'time': str(datetime.datetime.now())})
+            seged_dict = {}
             self.refer = 'http://newrms.cjol.com/resume/detail-{}'.format(self.id_number)
             self.headers['Referer']=self.refer
 
             self.headers['Host'] = 'newrms.cjol.com'
             # self.headers['Origin'] = 'http://rms.cjol.com'
             self.headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:42.0) Gecko/20100101 Firefox/42.0'
-
-            # position = self.position
-            # cookie_fpath = self.cookie_fpath
-            # if not cookie_fpath:
-            #     logging.debug('load cookie error for position %s' % position)
-            #     print 'cookie path no exist!'
-            #     exit()
-            # if os.path.exists(cookie_fpath):
-            #     self.load_cookie(cookie_fpath)
-            # else:
-            #     logging.debug('cookie file %s not exit.' % cookie_fpath)
-            #     print 'cookie path no exist!'
-            #     exit()
-            # self.login_status_chk()
-
             debug = self.debug
 
             if not self.debug:
@@ -259,9 +200,11 @@ class mainfetch(BaseFetch):
                 if len(data) > 0:
                     idnum, name, phone, buy_user, email, add_time = data[0]
                     logging.info('already down this id {} and {} account is {}, buy_time is {}'.format(self.id_number, self.module_name, buy_user, add_time))
+                    self.logger.info('already down this id {} and {} account is {}, buy_time is {}'.format(self.id_number, self.module_name, buy_user, add_time))
                     print 'already down this id {} and {} account is {}, buy_time is {}'.format(self.id_number, self.module_name, buy_user, add_time)
                     print "buy_resume_done,{},{},{}".format(name, phone, email)
-                    quit()
+                    return json.dumps({'name': name, 'phone': phone, 'email': email, 'id': self.id_number,
+                                       'status': 'already', 'time': add_time, 'user': buy_user})
 
                 # 解析 bankid
                 bankid = '-1'
@@ -274,21 +217,24 @@ class mainfetch(BaseFetch):
                 if int(bankid) == -1:  #todo 改为不等号
                     print 'trying to download this id'
                     logging.info('trying to download this id')
+                    self.logger.info('trying to download this id')
                     #quit()
-                    ### 购买简历 TODO
+                    ### 购买简历
                     url_buy = r"http://newrms.cjol.com/ResumeBank/CkResumeLink"
                     payload = {
                             'JobSeekerID': str(self.id_number),
                             'Label':'hello_resume',
                               }
-                    post_data = urllib.urlencode(payload)
-                    #print post_data
-                    html = self.url_post(url_buy, post_data)
-                    #print chardet.detect(html)
-                    # print html.encode('GB2312', 'ignore')
-
+                    s = requests.Session()
+                    s.headers = self.headers
+                    html = s.post(url_buy, payload)
+                    res = html.json()  # urllib 返回来的实在搞不清编码。。
+                    logging.info('data from cjol is {}'.format(res))
+                    self.logger.info('data from cjol is {}'.format(res))
+                    # todo 找出购买失败时cjol返回什么
                 else:
                     logging.info('already download this id {}, parse form page'.format(self.id_number))
+                    self.logger.info('already download this id {}, parse form page'.format(self.id_number))
                     print 'already download this id {}, parse form page'.format(self.id_number)
 
 
@@ -304,6 +250,7 @@ class mainfetch(BaseFetch):
                     req_count+=1
                     try:
                         logging.info('begin to get resume %s from internet' % str(self.id_number))
+                        self.logger.info('begin to get resume %s from internet' % str(self.id_number))
                         url = r"http://newrms.cjol.com/ResumeBank/ResumeOperation"
                         payload = {
                                 'JobSeekerID': str(self.id_number),
@@ -315,7 +262,7 @@ class mainfetch(BaseFetch):
                         html = self.url_post(url, post_data)
                         html = json.loads(html)["OtherData"]
                         isResume = self.isResume_chk(html)
-                        print isResume
+                        # print isResume
                         if isResume == -2:
                             req_count = 0
                         elif isResume == -1:
@@ -325,15 +272,56 @@ class mainfetch(BaseFetch):
                             req_count = 0
                         elif isResume == 1:
                             self.save_resume(str(self.id_number),html)
+                            try:
+                                prefixid = 'c_' + str(self.id_number)
+                                addtime = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                                r = self.rp
+                                r.rcheck(prefixid, addtime)
+                                es_redis = r.es_check(prefixid)
+                                if es_redis == 0:  # redis 标记 不在库中
+                                    ex_result_1 = ExtractSegInsert.fetch_do123(html, 'cjol', 1)
+                                    # ex_result_1 = ExtractSegInsert.fetch_do123(html, 'cjol')
+                                elif es_redis == 1:  # redis 标记已经在库中
+                                    ex_result_1 = ExtractSegInsert.fetch_do123(html, 'cjol', -1)
+                                ex_result = ex_result_1[1]
+                                # resume = ex_result_1[0]
+                                seged_dict = ex_result_1[2]
+                                if ex_result == 1:
+                                    r.tranredis('cjol_seg', 1, ext1='insert', ext2='ok')
+                                    r.es_add(prefixid, addtime, 1)
+                                elif ex_result == -1:
+                                    r.tranredis('cjol_seg', 1, ext1='update', ext2='ok')
+                                    r.es_add(prefixid, addtime, 1)
+                                elif ex_result == -4:
+                                    r.tranredis('cjol_seg', 1, ext1='update', ext2='search_err')
+                                    r.es_add(prefixid, addtime, 1)
+                                elif ex_result == -0:
+                                    r.tranredis('cjol_seg', 1, ext1='insert', ext2='not_insert')
+                                    r.es_add(prefixid, addtime, 0)
+                                elif ex_result == -2:
+                                    r.tranredis('cjol_seg', 1, ext1='', ext2='parse_err')
+                                    r.es_add(prefixid, addtime, 0)
+                                elif ex_result == -3:
+                                    r.tranredis('cjol_seg', 1, ext1='', ext2='source_err')
+                                    r.es_add(prefixid, addtime, 0)
+                                elif ex_result == -5:
+                                    r.tranredis('cjol_seg', 1, ext1='', ext2='operate_err')
+                                    r.es_add(prefixid, addtime, 0)
+                            except Exception, e:
+                                logging.warning(
+                                    'cjolbuy resume_id %s extractseginsert fail error msg is %s' % (self.id_number, e), exc_info=True)
                             break
                         elif isResume == 2:
                             logging.info('resume_id %s is secrect resume.' % self.id_number)
+                            self.logger.info('resume_id %s is secrect resume.' % self.id_number)
                             break
                         elif isResume == 3:
                             logging.info('resume_id %s is a attachement rusume,need view contact first.'% self.id_number)
+                            self.logger.info('resume_id %s is a attachement rusume,need view contact first.'% self.id_number)
                             break
                     except Exception,e:
                         logging.debug('get %s resume error and msg ' %  str(self.id_number))
+                        self.logger.debug('get %s resume error and msg ' %  str(self.id_number))
 
             else:
                 print "----- debug down bought resume"
@@ -341,6 +329,7 @@ class mainfetch(BaseFetch):
             ### 读取本地文件调试
             if self.debug:
                 logging.info('cjol down local debug')
+                self.logger.info('cjol down local debug')
                 with open("22a.html") as f:
                     html = f.read()
             #print html
@@ -358,9 +347,14 @@ class mainfetch(BaseFetch):
                 name = name[0].string.strip()
             except:
                 logging.error('parser cjol name error')
+                self.logger.error('parser cjol name error')
                 name = ''
-            print type(name)
-            print name.encode('utf-8')
+            try:
+                print type(name)
+                print name.encode('utf-8')
+            except Exception as e:
+                logging.error('what encoding is name exactly, {}'.format(e))
+                self.logger.error('what encoding is name exactly, {}'.format(e))
 
 
             table = soup.find_all('table', {'class':'common_box'})
@@ -380,6 +374,7 @@ class mainfetch(BaseFetch):
                                 email = c.find_next().get_text()
             except Exception, e:
                 logging.error('parse phone and email error cjol, and error msg is {}'.format(str(e)))
+                self.logger.error('parse phone and email error cjol, and error msg is {}'.format(str(e)), exc_info=True)
                 print Exception, str(e)
             name = name.encode('utf-8')
             name = name[:name.find('(')]
@@ -393,13 +388,48 @@ class mainfetch(BaseFetch):
             db.commit()
             db.close()
             logging.info("buy_resume_done,{},{},{}".format(name, phone, email))
+            self.logger.info("buy_resume_done,{},{},{}".format(name, phone, email))
             print "buy_resume_done,{},{},{}".format(name, phone, email) #% (name, phone, email)
+            message = {'name': name, 'phone': phone, 'email': email, 'id': self.id_number,
+                               'status': 'ok', 'time': str(datetime.datetime.now()), 'user': self.username}
+            b2t = buy2talent.BTalent('cjol', self.id_number, phone, name, email, seged_dict)
+            if seged_dict == {}:  # 解析错误，现在也可以 插入到mysql 了
+                message['ps'] = 'error cannot down resume or parse resume error, , please complete resume manually'
+            try:
+                b_res = b2t.main()
+                self.logger.info('talent_status is {}'.format(b_res))
+                if b_res == -1:
+                    message['talent_status'] = 'update phone success'
+                elif b_res == -2:
+                    message['talent_status'] = 'update phone fail'
+                elif b_res == -3:
+                    message['talent_status'] = 'this source id already has phone'
+                elif b_res == -4:
+                    message['talent_status'] = 'phone operate error'
+                elif b_res == -5:
+                    message['talent_status'] = 'parse resume error'
+                elif b_res > 0:
+                    message['status'] = 'exist'
+                    message['talent_status'] = 'phone number already in talent and id is {}'.format(b_res)
+                    message['talent_id'] = b_res
+                else:
+                    message['talent_status'] = 'error, no correct data'
+                b2t.contant_up(message, self.adviser_user)
+            except Exception as e:
+                message['talent_status'] = 'buy to talent error'
+                self.logger.error('buy to talent error', exc_info=True)
+            return json.dumps(message)
         except Exception,e:
             exc_type, exc_obj, exc_tb = sys.exc_info()
             print Exception, str(e)
             logging.critical('error and error msg is {}'.format(str(e)))
+            self.logger.critical('error and error msg is {}'.format(str(e)))
+            self.send_mails('warnning, cjoldown err', 'cjol down id {} err msg is {}'.format(self.id_number, e))
             print (exc_type, exc_tb.tb_lineno)
-            logging.debug('error msg is %s' % str(e))
+            logging.error('error msg is %s' % str(e))
+            self.logger.error('error msg is %s' % str(e))
+            return json.dumps({'status': 'python error', 'msg': e, 'time': str(datetime.datetime.now()),
+                               'user': self.username})
 
 
 ### 调试: python main.py  cjoldown gz 300584521 debug

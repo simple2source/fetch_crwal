@@ -35,7 +35,6 @@ import logging.config
 
 
 
-
 class Manage(object):
     def __init__(self, source='', location='', option='', num=''):
         # source 来源， option buy pub down， num MySQL 购买数量
@@ -55,16 +54,7 @@ class Manage(object):
         self.error_path = os.path.join(self.path, 'redis_error.txt')
         self.pool = redis.ConnectionPool(**self.config)
         self.r = redis.StrictRedis(connection_pool=self.pool, **self.config)
-        self.sql_config = {
-                # 'host': "localhost",
-                'host': "10.4.14.233",
-                # 'user': "testuser",
-                'user': "tuike",
-                # 'passwd': "",
-                'passwd': "sv8VW6VhmxUZjTrU",
-                'db': 'tuike',
-                'charset': 'utf8'
-            }
+        self.sql_config = common.sql_config
         if self.source == 'cjol':
             self.source = 'zjol'
         if self.source == 'zhilian':
@@ -73,7 +63,7 @@ class Manage(object):
             self.option = 'buy_num'
         elif self.option == 'pub':
             self.option = 'pub_num'
-        self.all_account = self.sql_password3()
+        self.all_account = ''
         if self.source == '51job':
             self.redis_key_pre = 'cookie51_'
         elif self.source == 'zl':
@@ -84,17 +74,18 @@ class Manage(object):
         with open(common.json_config_path) as f:
             ff = f.read()
         logger = logging.getLogger(__name__)
-        log_dict = json.loads(ff)
-        log_dict['handlers']['file']['filename'] = os.path.join(common.log_dir, 'account.log')
-        logging.config.dictConfig(log_dict)
-        logging.debug('hahahahha')
+        logger.addHandler(logging.FileHandler(os.path.join(common.log_dir, 'account.log')))
+        # log_dict = json.loads(ff)
+        # log_dict['handlers']['file']['filename'] = os.path.join(common.log_dir, 'account.log')
+        # logging.config.dictConfig(log_dict)
+        # logging.debug('hahahahha')
 
 
 
     def cookie_choose(self, option=0):
         # 选择对应的账号
         """挑选cookie, option 为1表示严格选择 buy pub num > 0 , 0 表示 不严格选择，用来先更新 buy pub num"""
-        print '------selecting cookies---------'
+        # print '------selecting cookies---------'
         logging.info('begin to select cookie')
         s = requests.session()
         l = self.sql_select(option)  # 选择的都是可以购买的
@@ -111,11 +102,19 @@ class Manage(object):
                     else:
                         a = liblogin.LoginCJOL(company_name.encode('utf-8'), user, password)
                     if a.check_login(ck_str):
-                        avail_list.append(user)
+                        if self.source == '51job':
+                            if a.check_login(ck_str, op=2):   #这里检查一下是否账号能搜索
+                                avail_list.append(user)
+                        else:
+                            avail_list.append(user)
                     else:
                         ck_str2 = a.main()
                         if a.check_login(ck_str2):
-                            avail_list.append(user)
+                            if self.source == '51job':
+                                if a.check_login(ck_str2, op=2):  # 这里检查一下是否账号能搜索
+                                    avail_list.append(user)
+                            else:
+                                avail_list.append(user)
                             self.redis_ck_set(user, ck_str2)
         return avail_list
 
@@ -285,7 +284,7 @@ class Manage(object):
             cn = data[0][0]
             pw = data[0][1]
         except:
-            print "can not find {} 's password in MySQL".format(un)
+            # print "can not find {} 's password in MySQL".format(un)
             logging.warning("can not find {} 's password in MySQL".format(un), exc_info=True)
             pass
         return cn, pw
@@ -293,6 +292,8 @@ class Manage(object):
     def sql_password3(self):
         """返回MySQL里面能操作所有的用户名列表"""
         sql = ''' select `grap_source`, `user_name` from grapuser_info where account_type = '购买账号' '''
+        if len(self.location) > 0:
+            sql += """ and account_mark like '%{}%' """.format(self.location)
         l = []
         try:
             db = MySQLdb.connect(**self.sql_config)
@@ -323,56 +324,68 @@ class Manage(object):
         try:
             if source == '51job':
                 mysql_source = '51job'
-                url = 'http://ehire.51job.com/Navigate.aspx?ShowTips=11&PwdComplexity=N'
+                url_b = 'http://ehire.51job.com/CommonPage/JobsDownNumbList.aspx'  #从这里读取购买余额
+                url_p = 'http://ehire.51job.com/CommonPage/JobsPostNumbList.aspx'  #从这里读取发布余额
                 s.headers['cookie'] = ck_str
                 s.headers['Host'] = 'ehire.51job.com'
                 s.headers['Referer'] = 'http://ehire.51job.com/MainLogin.aspx'
                 s.headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/47.0.2526.111 Safari/537.36'
-                r = s.get(url)
-                soup = BeautifulSoup(r.text, 'html.parser')
                 try:
-                    pub_num = soup.find('span', {'id': 'Navigate_AvalidJobs'}).a.b.text
-                    buy_num = soup.find('span', {'id': 'Navigate_AvalidResumes'}).a.b.text
-                    print pub_num, buy_num, 'pub_num, buy_num'
-                except Exception, e:
-                    print 'update error'
-                    print Exception, str(e)
-                    logging.warning('update 51job num error, msg is {}'.format(str(e)), exc_info=True)
-                    pass
+                    r = s.get(url_b)
+                    soup = BeautifulSoup(r.text, 'html.parser')
+                    soup_b = soup.find('tr', {'class':'text'}).find_all('td')[2]
+                    buy_num = soup_b.get_text()
+                except Exception as e:
+                    logging.error('cannot find buynum msg is {}'.format(e), exc_info=True)
+                try:
+                    r = s.get(url_p)
+                    soup = BeautifulSoup(r.text, 'html.parser')
+                    soup_p = soup.find_all('b', {'class': 'info_att'})[0]   # 只计算社会岗位
+                    pub_num = soup_p.get_text()
+                except Exception as e:
+                    logging.error('cannot find pubnum error msg is {}'.format(e), exc_info=True)
+
 
             elif source == 'zhilian' or source == 'zl':
                 mysql_source = 'zl'
                 proxies = {
-                  'http': 'http://183.131.144.102:8081',
-                  'https': 'http://183.131.144.102:8081',
+                  'http': 'http://10.4.16.39:8888',
+                  'https': 'http://10.4.16.39:8888',
                     }
                 url = 'http://rd2.zhaopin.com/s/homepage.asp'
                 s.headers['cookie'] = ck_str
                 # s.headers['Host'] = 'rd2.zhaopin.com'
-                s.headers['Host'] = 'rd.zhaopin.com'
+                s.headers['Host'] = 'rdsearch.zhaopin.com'
+                s.headers['Referer'] = 'http://rdsearch.zhaopin.com/Home/SearchByCustom?source=rd'
                 # s.headers['Referer'] = 'http://www.cjol.com/hr/'
                 s.headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/47.0.2526.111 Safari/537.36'
                 # r = s.get(url)
                 # soup = BeautifulSoup(r.text, 'html.parser')
-                url1 = 'http://rd.zhaopin.com/resumepreview/resume/viewone/2/JM114403938R90250002000_1_1?searchresume=1'
+                # url1 = 'http://rd.zhaopin.com/resumepreview/resume/viewone/2/JM114403938R90250002000_1_1?searchresume=1'
+                url1 = 'http://rdsearch.zhaopin.com/Json/CompanyInfo'
                 r1 = s.get(url1, proxies=proxies)
-                soup_1 = BeautifulSoup(r1.text, 'html.parser')
+                # soup_1 = BeautifulSoup(r1.text, 'html.parser')
                 try:
-                    buy_num = soup_1.find('div', {'class': 'intro-span-right'}).span.get_text()
+                    # buy_num = soup_1.find('div', {'class': 'intro-span-right'}).span.get_text()
+                    buy_num = r1.json()['DownloadBalanceCount']
                 except Exception, e:
-                    print Exception, e
+                    logging.error('get zhilian buy_num error msg is {} '.format(e), exc_info=True)
                     buy_num = '0'
-                url2 = 'http://jobads.zhaopin.com/Position/PositionAdd'
+                url2 = 'http://jobads.zhaopin.com/Position/GetContractLeftPoints'
+                s.headers['Referer'] = 'http://rdsearch.zhaopin.com/Home/SearchByCustom?source=rd'
                 s.headers['Host'] = 'jobads.zhaopin.com'
                 r2 = s.get(url2, proxies=proxies)
-                soup_2 = BeautifulSoup(r2.text, 'html.parser')
+                # soup_2 = BeautifulSoup(r2.text, 'html.parser')
                 try:
-                    pub_num = soup_2.find('input', {'name': 'PublicPoints'}).get('value')
+                    # pub_num = soup_2.find('input', {'name': 'PublicPoints'}).get('value')
+                    pub_num = 0
+                    for i in r2.json():
+                        pub_num += i['leftP']
                 except Exception, e:
-                    print Exception, e
+                    # print Exception, e
                     logging.warning('update zhilian num error, msg is {}'.format(str(e)), exc_info=True)
                     pub_num = '0'
-                print buy_num, pub_num
+                # print buy_num, pub_num
 
             elif source == 'cjol' or source == 'zjol':
                 mysql_source = 'zjol'
@@ -400,11 +413,11 @@ class Manage(object):
                 db.commit()
                 db.close()
             except Exception, e:
-                print Exception, str(e)
+                # print Exception, str(e)
                 logging.warning('update mysql error, msg is {}'.format(str(e)), exc_info=True)
                 pass
         except Exception, e:
-            print Exception, str(e)
+            # print Exception, str(e)
             logging.warning('error, msg is {}'.format(str(e)), exc_info=True)
             pass
 
@@ -497,18 +510,31 @@ class Manage(object):
                 if data[0][0]:
                     l_num = int(data[0][0])
                 db.close()
-                print username.encode('utf-8'), ' account crawl num is ', l_num
+                logging.info('account {} crawl number is {}'.format(username.encode('utf-8'), l_num))
                 # print time_period, num
             except Exception, e:
-                print Exception, e
+                # print Exception, e
                 logging.warning('error, msg is {}'.format(str(e)), exc_info=True)
-                pass
             if num >=  l_num: # 提供的数量大于 实际抓取的数量 还有额度可以抓
                 return True
             else:
                 return False
 
 
+    def expired_user(self):
+        ex_list = []
+        try:
+            day30 = datetime.date.today() + datetime.timedelta(days=50)
+            sql = """select user_name from grapuser_info WHERE expire_time < '{}' and grap_source = '{}'""".format(day30, self.source)
+            db = MySQLdb.connect(**self.sql_config)
+            cur = db.cursor()
+            cur.execute(sql)
+            data = cur.fetchall()
+            for i in data:
+                ex_list.append(i[0])
+        except Exception, e:
+            logging.error('try to find expired user fail', exc_info=True)
+        return ex_list
     # def crawl_choose(self, time_period=0, num=0):
     #     """
     #     :param sc: 来源
@@ -576,8 +602,8 @@ class Manage(object):
                     l4 = l3
                 if day_num != 0:
                     for i4 in l4:
-                        if self.sql_num(i4.split('_')[1], 122400, hour_num):
-                            l4.append(i4)
+                        if self.sql_num(i4.split('_')[1], 86400, day_num):
+                            l5.append(i4)
                 else:
                     l5 = l4
                 return l5  # 返回的是一个符合条件的列表。 由脚本判断登录态
@@ -587,15 +613,33 @@ class Manage(object):
                 avail_list = self.cookie_choose(option=0)
                 if len(avail_list) > 0:
                     f_flag = True
+                    ex_list = self.expired_user()
+                    ee_list = []
+                    for i1 in ex_list:
+                        if i1 in avail_list:
+                            ee_list.append(i1)   # 两者交集
                     while f_flag:
-                        username = random.choice(avail_list)
-                        avail_list.remove(username)
-                        ck_str = self.redis_ck_get(username)
-                        self.num_update(source=self.source, un=username, ck_str=ck_str)
-                        avail_num = int(self.avail_num(username))
-                        if avail_num > 0:
-                            print 'Select user done and user is {}, avail num is {}'.format(username, avail_num)
-                            f_flag = False
+                        if len(ee_list) > 0:
+                            username = random.choice(ee_list)
+                            ee_list.remove(username)
+                            avail_list.remove(username)
+                            ck_str = self.redis_ck_get(username)
+                            self.num_update(source=self.source, un=username, ck_str=ck_str)
+                            avail_num = int(self.avail_num(username))
+                            if avail_num > 0:
+                                # print 'Select user done and user is {}, avail num is {}'.format(username, avail_num)
+                                logging.info('select expired user is {}, avail num is {}'.format(username, avail_num))
+                                f_flag = False
+                        else:
+                            username = random.choice(avail_list)
+                            avail_list.remove(username)
+                            ck_str = self.redis_ck_get(username)
+                            self.num_update(source=self.source, un=username, ck_str=ck_str)
+                            avail_num = int(self.avail_num(username))
+                            if avail_num > 0:
+                                # print 'Select user done and user is {}, avail num is {}'.format(username, avail_num)
+                                logging.info('select user is {} avail num is {}'.format(username, avail_num))
+                                f_flag = False
                 else:
                     logging.error('no avail login cookie file for {}'.format(self.source))
                     print '没有已经登陆的 {} cookie文件'.format(self.source)

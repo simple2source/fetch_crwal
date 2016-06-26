@@ -15,6 +15,9 @@ import cjolextract_new
 from  zhilian_parse import zhilian_parse
 import chardet
 import logging
+from simhash import Simhash
+from redispipe_for_resume_classify import ResumeClassifyPipe
+import shutil
 
 #检查切词后的字典是否有job_status_convert
 def check_dict(dict):
@@ -61,7 +64,7 @@ def add_price(seged_dict):
       if "北京" in seged_dict["domicile"]:
         seged_dict["price"] = 9.5
       elif ("广州" in seged_dict["domicile"]) or ("深圳" in seged_dict["domicile"]):
-        print seged_dict["domicile"]
+        # print seged_dict["domicile"]
         seged_dict["price"] = 3
       else:
         pass
@@ -1318,6 +1321,8 @@ def extract_51(html_file="", content="", output_dir=""):
 def seg(info):
   info = urllib.quote(info.encode('utf8'))
   url = "http://10.4.29.242:8087/segmenter?text=" + info
+  # url = "http://183.131.144.102:8087/segmenter?text=" + info
+  reload(urllib2)
   req = urllib2.Request(url)
   res_data = urllib2.urlopen(req)
   info = eval(res_data.read())
@@ -1865,29 +1870,216 @@ def insert_old(resume_dict, source):
     logging.info('exsearch return -5 %s' % resume_dict['id'])
     return -5
 
+def is_resume_exists(resume_dict):
+  '''判断简历是否已经存在'''
+  query_dsl = {
+    'from' : 0,
+    'query' : {
+      'filtered' : {
+        'query': {
+          'bool': {
+            'must': [],
+            'must_not': []
+          }
+        }
+      }
+    }
+  }
+
+  must_not_query_dsl = query_dsl['query']['filtered']['query']['bool'][
+    'must_not']
+  if 'source' in resume_dict:
+    must_not_query_dsl.append(
+      {'match': {
+        'source': resume_dict['source']
+      }}
+    )
+  id = ''
+  if 'id' in resume_dict:
+    id = resume_dict['id']
+    must_not_query_dsl.append(
+      {'match': {
+        'id': id
+      }}
+    )
+  word_query_dsl = query_dsl['query']['filtered']['query']['bool']['must']
+  # 工作经历_公司名，工作经历_职位名
+  if 'work_experience' in resume_dict:
+    work_experience_list = resume_dict['work_experience']
+    for experience_item in work_experience_list:
+      # job_name = experience_item['job_name']
+      # if len(job_name) > 0:
+      #   word_query_dsl.append({
+      #     'match' : {
+      #       'work_experience.job_name' : {
+      #         'query' : job_name,
+      #         'type' : 'phrase'
+      #       }
+      #     }
+      #   })
+      company_name = experience_item['company_name']
+      if len(company_name) > 0:
+        word_query_dsl.append({
+          'match' : {
+            'work_experience.company_name' : {
+              'query' : company_name,
+              # 'type' : 'phrase'
+            }
+          }
+        })
+  # 专业
+  if 'major' in resume_dict and len(resume_dict['major']) > 0:
+    word_query_dsl.append({
+      'match' : {
+        'major' : {
+          'query' : resume_dict['major'],
+          # 'type' : 'phrase'
+        }
+      }
+    })
+  # 学校
+  if 'school' in resume_dict and len(resume_dict['school']) > 0:
+    word_query_dsl.append({
+      'match' : {
+        'school' : {
+          'query' : resume_dict['school'],
+          # 'type' : 'phrase'
+        }
+      }
+    })
+  # 毕业时间
+  if 'graduate_time' in resume_dict and resume_dict['graduate_time']:
+    word_query_dsl.append({
+      'match' : {
+        'graduate_time' : {
+          'query' : resume_dict['graduate_time'],
+          'type' : 'phrase'
+        }
+      }
+    })
+  # 年龄
+  if 'age' in resume_dict and resume_dict['age']:
+    word_query_dsl.append({
+      'match': {
+        'age': {
+          'query': resume_dict['age'],
+        }
+      }
+    })
+  # 简历更新年份
+  if 'resume_update_time' in resume_dict and resume_dict['resume_update_time']:
+    resume_update_year = resume_dict['resume_update_time'].split('-')[0]
+    start_time = resume_update_year + '-01-01'
+    end_time = resume_update_year + '-12-31'
+    query_dsl['query']['filtered']['filter'] = {
+      'range': {
+        'resume_update_time': {
+          "gte" : start_time,
+          "lte" : end_time
+        }
+      }
+    }
+
+  # 搜索条件为空，返回True
+  if len(word_query_dsl) == 0:
+    logging.info('query_dsl is empty. return True. %s' % id)
+    return True
+  es = Elasticsearch("10.4.29.242:8090")
+  # es = Elasticsearch("127.0.0.1:9200")
+  res = es.search(index='supin_resume_v1', doc_type='doc_v1', body=query_dsl)
+  # 根据搜索条件能从库中找到简历，通过比较简历更新时间、年龄、工作经历
+  # 的simhash距离、教育经历的simhash距离判断是否是同一份简历
+
+  # 对resume_dict中的工作经历、教育经历进行转码，用于计算simhash值
+  work_experience_list = []
+  if 'work_experience' in resume_dict:
+    for experience_item in resume_dict['work_experience']:
+      new_experience_dict = {}
+      for k, v in experience_item.items():
+        if isinstance(v, str):
+          new_experience_dict[k.decode('utf8')] = v.decode('utf8')
+        else:
+          new_experience_dict[k.decode('utf8')] = v
+      work_experience_list.append(new_experience_dict)
+  edu_experience_list = []
+  if 'education' in resume_dict:
+    for edu_item in resume_dict['education']:
+      new_edu_dict = {}
+      for k, v in edu_item.items():
+        if isinstance(v, str):
+          new_edu_dict[k.decode('utf8')] = v.decode('utf8')
+        else:
+          new_edu_dict[k.decode('utf8')] = v
+      edu_experience_list.append(new_edu_dict)
+
+  if len(work_experience_list) == 0:
+    logging.info('experience is empty. return False. %s' % id)
+    return False
+
+  # 循环判断从库中搜索到的结果
+  count = 0
+  for item in res['hits']['hits']:
+    count += 1
+    if count > 5:
+      break
+    resume = item['_source']
+    db_id = resume['id']
+
+    # 计算工作经历和教育经历的simhash距离
+    work_experience = ''
+    if 'work_experience' in resume:
+      work_experience = str(resume['work_experience'])
+    work_distance = Simhash(str(work_experience_list)).distance(\
+      Simhash(work_experience))
+    edu_experience = ''
+    if 'education' in resume:
+      edu_experience = str(resume['education'])
+    edu_distance = Simhash(str(edu_experience_list)).distance(\
+      Simhash(edu_experience))
+    # 两个距离同时小于指定值即判断为同一份简历
+    if work_distance < 7 and edu_distance < 9:
+      logging.info('return True. %s,%s. distance:%s,%s' % (\
+        id, db_id, work_distance, edu_distance))
+      return True
+    else:
+      logging.info('distance too big. %s,%s. distance:%s,%s' % (id, db_id,\
+        work_distance, edu_distance))
+  logging.info('return False. %s' % id)
+  return False
+
 def insert(resume_dict, source, operation):
-  if not resume_dict.has_key('education') and not resume_dict.has_key('work_experience'):
+  resume_dict.setdefault('education', [])
+  resume_dict.setdefault('work_experinece', [])
+  if len(resume_dict["work_experience"]) == 0:
     logging.info('exsearch return 0 %s' % resume_dict['id'])
     return 0
-  else:
-    if resume_dict.has_key('education') and resume_dict.has_key('work_experience'):
-      if len(resume_dict['education']) == 0 and len(resume_dict['work_experience']) == 0:
-        logging.info('exsearch return 0 %s' % resume_dict['id'])
-        return 0
+  length_checker = False
+  for work_experience in resume_dict["work_experience"]:
+    if len(work_experience["job_describe"]) > 10:
+      length_checker = True
+      break
+  if length_checker == False:
+    logging.info('exsearch return 0 %s' % resume_dict['id'])
+    return 0
   resume_source = source
   resume_dict = resume_dict
   es = Elasticsearch("10.4.29.242:8090")
+  # es = Elasticsearch("127.0.0.1:9200")
   resume_dict['id'] = resume_dict['id'].strip()
   resume_id = resume_dict['id']
   if operation == 1:
-    resume_dict['source'] = resume_source
-    res = es.index(index="supin_resume_v1", doc_type="doc_v1", body=resume_dict)
-    if res.has_key("_id"):
-      logging.info('exsearch return 1 %s' % resume_dict['id'])
-      return 1
-    else:
-      logging.info('exsearch return 0 %s' % resume_dict['id'])
-      return 0
+    # 先判断简历是否已经存在
+    resume_exists = is_resume_exists(resume_dict)
+    # print resume_exists
+    if not resume_exists:
+      resume_dict['source'] = resume_source
+      res = es.index(index="supin_resume_v1", doc_type="doc_v1", body=resume_dict)
+      if res.has_key("_id"):
+        logging.info('exsearch return 1 %s' % resume_dict['id'])
+        return 1
+      else:
+        logging.info('exsearch return 0 %s' % resume_dict['id'])
+        return 0
   elif operation == -1:
     res = es.search(index='supin_resume_v1',doc_type='doc_v1',
       body={
@@ -1952,6 +2144,13 @@ def fetch_do123(html_file, source, operation):
     seged_dict = add_price(seged_dict)
     result = insert(resume_dict=seged_dict, source=source, operation=operation)
     # print "after_es",check_es(seged_dict["id"])
+
+    # 若插入或更新成功，则向简历分类队列发送一条消息
+    print 'insert result:', result
+    if result == 1 or result == -1:
+      rcp = ResumeClassifyPipe()
+      rcp.producer(seged_dict['id'])
+
     return_info = {}
     y = time.strftime('%Y',time.localtime(time.time()))
     return_info['id'] = seged_dict['id']
@@ -1961,7 +2160,7 @@ def fetch_do123(html_file, source, operation):
     return_info['domicile'] = seged_dict['domicile']
     return_info['degree'] = seged_dict['degree']
     return_info['resume_update_time'] = seged_dict['resume_update_time']
-    return  return_info, result
+    return  return_info, result, seged_dict
   else:
     return 0,-2
 
